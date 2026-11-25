@@ -4,8 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "python3 server.py",
-    "test": "python3 -m unittest discover -s tests -v && node --test tests/groq.test.mjs",
+    "test": "python3 -m unittest discover -s tests -v && node --test tests/groq.test.mjs tests/worker.test.mjs",
+    "build:sites": "node scripts/build-sites.mjs && node scripts/validate-sites.mjs",
+    "preview:sites": "node scripts/preview-sites.mjs",
     "test:browser": "node tests/browser.cjs",
     "data:generate": "python3 generate_dataset.py"
-  }
+  },
+  "engines": {"node": ">=20"}
 }
