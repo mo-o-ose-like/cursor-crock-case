@@ -1,6 +1,8 @@
 import {sampleNetwork,stages} from './sample-network.js';
+import {defenseDeal,defenseRecord} from './defense-demo.js';
 // Local fixtures. All people, companies and map details are illustrative.
 export const deals = [
+  defenseDeal,
   {id:'service',title:'Автоматизация сервис-деска',company:'АО Северный Вектор',participant:'Александр Морозов',position:'Директор по ИТ',role:'Технический эксперт',tags:['Поддерживает','ИТ-департамент'],agreement:'Согласовать технические требования',notes:'Предпочитает письменные спецификации',stage:'Техническая оценка'},
   {id:'network',title:'Модернизация сети филиалов',company:'ГК ПромАльянс',participant:'Елена Фёдорова',position:'Руководитель эксплуатации',role:'Основной контакт КРОК',tags:['Инфраструктура','Филиалы'],agreement:'Подготовить перечень площадок',notes:'Миграция по выходным',stage:'Переговоры'},
   {id:'soc',title:'Центр мониторинга ИБ',company:'ООО Нева Энерго',participant:'Олег Пахомов',position:'Директор по информационной безопасности',role:'Технический эксперт',tags:['Безопасность','ИБ'],agreement:'Провести демонстрацию SOC',notes:'Уточнить требования службы ИБ',stage:'Техническая оценка'},
@@ -41,6 +43,7 @@ export function dealRecord(id) {
   if(stored?.deal && Array.isArray(stored.people) && Array.isArray(stored.edges)) return stored;
   const deal=deals.find(d=>d.id===id);
   if(!deal) return null;
+  if(id===defenseDeal.id) return defenseRecord(deal);
   return {deal:{...deal},...sampleNetwork(deal),sources:['Демонстрационная CRM'],settings:defaultSettings(deal)};
 }
 export function defaultSettings(d) {
