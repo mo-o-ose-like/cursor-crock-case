@@ -1,0 +1,11 @@
+{
+  "name": "cursor-ai-mvp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "python3 server.py",
+    "test": "python3 -m unittest discover -s tests -v && node --test tests/groq.test.mjs",
+    "test:browser": "node tests/browser.cjs",
+    "data:generate": "python3 generate_dataset.py"
+  }
+}
