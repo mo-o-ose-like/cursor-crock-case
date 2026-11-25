@@ -61,17 +61,40 @@
   .learn-panel {padding:18px}
 }
 
-.learn-top-nav,.learn-board-title {display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.learn-top-nav {display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
 .learn-top-nav > a:last-child {color:var(--nav);text-underline-offset:3px}
 .learn-coach {display:flex;align-items:center;gap:8px;color:var(--nav);font-size:14px;font-weight:600;margin-bottom:16px}
 .learn-coach img {width:31px;height:auto}
-.learn-welcome > img {width:66px;height:auto;display:block;margin:0 0 18px}
-.learn-welcome ul {padding-left:20px;margin-bottom:4px}
-.learn-welcome li+li {margin-top:8px}
-.learn-board-title h3 {margin:4px 0 12px}
-.learn-board-title small,.learn-board-empty {color:var(--muted);overflow-wrap:anywhere}
-.learn-board-status {margin-top:10px;color:var(--nav)}
-.learn-person[aria-pressed="true"] {background:#e4eff6;border-color:var(--brand)}
-.learn-person-role {font-weight:600}
-.learn-board-empty {margin-top:12px}
-.learn-slide-actions {margin-top:22px}
+
+.learn-plan {padding-left:22px;margin:12px 0 22px}
+.learn-plan li+li {margin-top:6px}
+.learning-builder [data-learn-builder="resume"] {margin-top:16px}
+#map-learning {
+  flex:none;
+  padding:9px clamp(14px,2vw,28px);
+  background:#eef6fa;
+  border-bottom:1px solid #c5dce9;
+  color:var(--nav);
+}
+#map-learning[hidden] {display:none}
+.map-learning-top,.map-learning-body {display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.map-learning-top {align-items:center;font-size:13px}
+.map-learning-top .text-act {padding:0}
+.map-learning-body h2 {font-size:18px;line-height:1.25;margin-bottom:3px}
+.map-learning-body p {font-size:13px;color:var(--ink);max-width:85ch}
+.map-learning-body .map-learning-cue {color:var(--nav);font-weight:600;margin-top:5px}
+.map-learning-actions {display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:5px;margin-left:auto}
+.map-learning-actions .btn {padding:6px 12px;min-height:32px;font-size:13px}
+.map-app[data-learning-target="person"] .add-person,
+.map-app[data-learning-target="process"] .map-nav [data-mode="process"],
+.map-app[data-learning-target="org"] .map-nav [data-mode="org"],
+.map-app[data-learning-target="influence"] .map-nav [data-mode="influence"],
+.map-app[data-learning-target="layout"] [data-map="layout"],
+.map-app[data-learning-target="edge-mode"] [data-map="edge-edit"],
+.map-app[data-learning-target="cards"] .person-card {outline:2px solid #487f9d;outline-offset:2px}
+@media (max-width:680px) {
+  #map-learning {padding:7px 12px}
+  .map-learning-body {gap:4px;flex-direction:column}
+  .map-learning-body h2 {font-size:16px}
+  .map-learning-body p {font-size:12px}
+}

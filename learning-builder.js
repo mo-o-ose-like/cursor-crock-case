@@ -2,216 +2,127 @@ import {esc, icon, eyes} from './components.js';
 import {dealRecord, defaultSettings, readLearningDraft, saveLearningDraft, saveRecord} from './data.js';
 import {field, submit, valid} from './fields.js';
 import {modes} from './map-layout.js';
-import {avatar, editParticipant, roleName} from './person-panel.js';
-import {editRelation, statuses} from './relations.js';
 
-const slides = [
-  {title:'Создайте свою карту сделки',
-   text:'Вы ведёте переговоры с заказчиком. К концу обучения у вас будет собственная карта с контактами и связями, которую можно открыть и продолжить редактировать.',
-   task:'Возьмите свой пример или придумайте компанию и проект. Для упражнения достаточно двух участников, которые знакомы друг с другом.'},
-  {title:'Назовите сделку',
-   text:'В списке «Ваши сделки» работа начинается с кнопки «Добавить сделку». В рабочем режиме можно выбрать источники и проверить найденные данные.',
-   task:'Введите название проекта и компании. Здесь начнём с пустой карты и добавим участников вручную.'},
-  {title:'Добавьте контакты',
-   text:'Кнопка «Участник» вверху карты открывает карточку. Запишите имя, должность и подразделение. В карточке также можно указать роль в закупке, отношение к проекту, Telegram и фото.',
-   task:'Добавьте минимум двух человек. Например, основного контакта и руководителя, который утверждает бюджет. Отметить их можно флажками «Основной контакт КРОК» и «Лицо, принимающее решение».'},
-  {title:'Покажите, как продвигается закупка', kind:'process',
-   text:'Стрелка в «Процессе закупки» ведёт от того, кто открыл следующий шаг, к тому, с кем теперь нужно работать.',
-   task:'Выберите двух участников: сначала того, кто познакомил, затем того, к кому перешли. В карточке стрелки укажите статус и опишите, что произошло или запланировано.',
-   example:'Например, основной контакт представил менеджера финансовому директору.'},
-  {title:'Нарисуйте формальное подчинение', kind:'org',
-   text:'В «Оргструктуре» стрелка идёт от руководителя к подчинённому. Каждый сотрудник может иметь одного прямого руководителя на карте.',
-   task:'Выберите руководителя, затем сотрудника. Если в вашем примере между участниками нет формального подчинения, этот шаг можно пропустить.',
-   example:'Например, финансовый директор руководит финансовым контролёром.'},
-  {title:'Добавьте влияние на решение', kind:'influence',
-   text:'В режиме «Влияние» стрелка идёт от того, кто влияет, к тому, кто принимает решение. Такая связь может идти в обратную сторону по сравнению с подчинением.',
-   task:'Выберите, кто влияет и на чьё решение. Укажите силу связи и запишите факт или основание для гипотезы.',
-   example:'Например, руководитель ИБ может задержать согласование бюджета, пока не проверены меры защиты.'},
-  {title:'Проверьте свою карту',
-   text:'Сверьте контакты и направление стрелок. Нажмите на связь, чтобы проверить её параметры: в обычной карте это тоже открывает карточку стрелки.',
-   task:'Переключитесь между режимами и сохраните сделку. На рабочей карте можно добавить договорённости, подсветить риски и проверить альтернативный ход событий в What if.'}
+const mapLessons = [
+  {mode:'process', title:'Добавьте два контакта', text:'Добавьте основного контакта и ещё одного участника. В карточке укажите должность и роль в закупке. Там же можно добавить фото и Telegram.'},
+  {mode:'process', kind:'process', title:'Свяжите участников закупки', text:'Сначала выберите того, кто познакомил, затем того, к кому перешли. Запишите, что произошло или запланировано.'},
+  {mode:'org', kind:'org', title:'Покажите подчинение', text:'Выберите руководителя, затем подчинённого. Если формальной связи в вашей сделке нет, этот шаг можно пропустить.'},
+  {mode:'influence', kind:'influence', title:'Добавьте влияние', text:'Выберите, кто влияет и на чьё решение. Укажите силу связи и запишите факт или основание для гипотезы.'},
+  {title:'Карта готова', text:'Откройте стрелку, чтобы проверить её направление и параметры. Эта карта уже есть в вашем списке сделок. В What if можно сравнить исходную карту с альтернативным сценарием.'}
 ];
 
-const kinds = ['process','org','influence'];
-const last = slides.length - 1;
-const emptyDraft = () => ({step:0,deal:null,people:[],edges:[],skipOrg:false});
+const firstLesson = 2;
+const lastLesson = firstLesson + mapLessons.length - 1;
 
 export function mountLearningBuilder({id, root, header, go, signal}) {
-  let draft = readLearningDraft() || emptyDraft();
+  const stored = readLearningDraft();
   const returnId = id && dealRecord(id) ? id : '';
   const mapLink = returnId ? '#map/'+esc(returnId) : '#deals';
   const reviewLink = '#learn-review'+(returnId?'/'+esc(returnId):'');
-  let editing = false, first = '', menu = false, previewMode = 'process';
-  let highlighted = null;
+  let entry = stored?.deal ? 'resume' : 'welcome';
   document.title = 'Создайте карту сделки — Cursor';
   root.innerHTML = header()+`<main class="learning learning-builder">
     <nav class="learn-top-nav" aria-label="Навигация по обучению">
       <a href="${mapLink}" class="back">${icon('back',16)} ${returnId?'К карте сделки':'К сделкам'}</a>
       <a href="${reviewLink}">Разбор готовой карты</a>
     </nav>
+    <header class="learn-heading"><h1>Практикум Cursor</h1></header>
     <div id="learn-builder"></div>
   </main>`;
   const content = root.querySelector('#learn-builder');
 
-  function commit() {
-    saveLearningDraft(draft);
-  }
-  function switchStep(step) {
-    draft.step=step;
-    editing=false; first=''; menu=false; highlighted=null;
-    commit();
-    draw('h2');
-  }
-  function canAdvance(slide) {
-    if (draft.step===1) return Boolean(draft.deal);
-    if (draft.step===2) return draft.people.length>=2;
-    if (slide.kind) return draft.edges.some(edge=>edge.kind===slide.kind) || (slide.kind==='org'&&draft.skipOrg);
-    return true;
-  }
-  const lessonKind = () => slides[draft.step].kind;
-  const name = id => draft.people.find(person=>person.id===id)?.name || '';
-
-  function peopleMarkup(mode) {
-    return draft.people.map(person=>{
-      const selecting=Boolean(mode)&&editing;
-      const label=person.primary?'Основной контакт КРОК':person.decision?'ЛПР':person.role?roleName(person):'';
-      const card=avatar(person)+`<span><strong>${esc(person.name)}</strong><small>${esc(person.title||'Должность не указана')}</small>
-        ${label?`<small class="learn-person-role">${esc(label)}</small>`:''}</span>`;
-      return selecting||draft.step===2
-        ? `<button class="learn-person" type="button" data-builder-person="${esc(person.id)}" ${selecting?`aria-pressed="${first===person.id}"`:''}>${card}</button>`
-        : `<div class="learn-person">${card}</div>`;
-    }).join('');
-  }
-  function edgeMarkup(mode) {
-    const edges=draft.edges.filter(edge=>edge.kind===mode);
-    if (!edges.length) return '<p class="learn-board-empty">В этом режиме стрелок пока нет.</p>';
-    return `<div class="learn-links">${edges.map(edge=>`<button type="button" class="learn-edge" data-builder-edge="${draft.edges.indexOf(edge)}" aria-pressed="${edge===highlighted}">
-      <span>${esc(name(edge.a))}</span><span aria-hidden="true">→</span><span>${esc(name(edge.b))}</span>
-    </button>`).join('')}</div>`
-      +(highlighted?`<p class="learn-evidence"><strong>${esc(statuses[mode][highlighted.status]||'Связь')}</strong>
-        ${highlighted.text?' · '+esc(highlighted.text):''}${highlighted.date?' · '+esc(highlighted.date):''}</p>`:'');
-  }
-  function board(slide) {
-    if (draft.step===0) return `<div class="learn-welcome">${eyes()}<h3>Что вы соберёте</h3>
-      <ul><li>Сделку и карточки участников</li><li>Стрелки закупки, подчинения и влияния</li><li>Готовую карту, которую можно открыть из списка сделок</li></ul></div>`;
-    if (draft.step===1) return `<form id="learn-deal-form" class="edit-form">
-      ${field('Название сделки','title',draft.deal?.title,{required:true,placeholder:'Например, внедрение корпоративного портала',extra:'maxlength="160"'})}
-      ${field('Компания-клиент','company',draft.deal?.company,{required:true,placeholder:'Например, ООО Северная Линия',extra:'maxlength="160"'})}
-      ${submit('Создать учебную карту')}</form>`;
-    const mode=slide.kind || (draft.step===last?previewMode:'');
-    const title=mode?modes[mode]:'Контакты';
-    const controls=draft.step===2
-      ? '<button type="button" class="btn primary" data-builder-action="add-person">＋ Участник</button>'
-      : slide.kind?`<button type="button" class="btn secondary" data-builder-action="layout" aria-expanded="${menu}">Управление картой</button>`:'';
-    const toolbar=slide.kind && menu?`<div class="learn-mode">
-      <button type="button" data-builder-action="edge-mode" aria-pressed="${editing}">Редактирование связей</button>
-    </div>`:'';
-    const tabs=draft.step===last?`<div class="learn-mode" role="group" aria-label="Режимы готовой карты">${kinds.map(kind=>
-      `<button type="button" data-builder-mode="${kind}" aria-pressed="${kind===mode}">${modes[kind]}</button>`).join('')}</div>`:'';
-    return `<div class="learn-board-title"><div><small>${esc(draft.deal.company)} / ${esc(draft.deal.title)}</small><h3>${title}</h3></div>${controls}</div>
-      ${toolbar}${tabs}
-      ${slide.kind?`<p class="learn-board-status" role="status">${esc(editing?(first?name(first)+' → выберите второго участника.':'Выберите первого участника.'):'Откройте «Управление картой» и включите «Редактирование связей».')}</p>`:''}
-      <div class="learn-cards">${peopleMarkup(slide.kind)}${draft.people.length?'':'<p>Добавьте первого участника.</p>'}</div>
-      ${mode?edgeMarkup(mode):''}`;
+  function openMap(draft) {
+    const deal = {...draft.deal, created:Date.now()};
+    if (!dealRecord(deal.id)) {
+      saveRecord({deal,people:draft.people || [],edges:draft.edges || [],sources:['Учебная карта · вручную'],settings:defaultSettings(deal)});
+    }
+    // Carry over progress from the earlier practice screen.
+    saveLearningDraft({deal,step:Math.max(firstLesson,Math.min(draft.step,lastLesson))});
+    go('map/'+deal.id);
   }
   function draw(focus) {
-    const slide=slides[draft.step];
-    content.innerHTML=`<header class="learn-heading"><h1>Практикум Cursor</h1></header>
-      <div class="learn-progress"><label for="builder-progress">Слайд ${draft.step+1} из ${slides.length}</label>
-        <progress id="builder-progress" value="${draft.step+1}" max="${slides.length}"></progress></div>
-      <div class="learn-grid">
-        <section class="learn-panel learn-instruction"><div class="learn-coach">${eyes()}<span>Помощник Cursor</span></div>
-          <h2 tabindex="-1">${slide.title}</h2><p>${slide.text}</p>
-          <div class="learn-task"><strong>Ваше действие</strong><p>${slide.task}</p></div>
-          ${slide.example?`<details><summary>Показать пример</summary><p>${slide.example}</p></details>`:''}
-        </section>
-        <section class="learn-panel learn-practice" aria-label="Учебная карта">${board(slide)}</section>
-      </div>
-      <div class="learn-actions learn-slide-actions">
-        ${draft.step?`<button type="button" class="btn secondary" data-builder-action="back">Назад</button>`:''}
-        ${slide.kind==='org' && !canAdvance(slide)?'<button type="button" class="btn secondary" data-builder-action="skip-org">Пропустить подчинение</button>':''}
-        ${draft.step!==1?`<button type="button" class="btn primary" data-builder-action="next" ${canAdvance(slide)?'':'disabled'}>
-          ${draft.step===0?'Начать':draft.step===last?'Сохранить и открыть карту':'Дальше'}</button>`:''}
-      </div>`;
-    if (focus) content.querySelector(focus)?.focus();
+    const form = entry === 'form';
+    content.innerHTML = `<div class="learn-grid">
+      <section class="learn-panel learn-instruction"><div class="learn-coach">${eyes()}<span>Помощник Cursor</span></div>
+        <h2 tabindex="-1">${entry==='resume'?'Продолжите на своей карте':form?'Назовите сделку':'Создайте свою карту сделки'}</h2>
+        <p>${entry==='resume'?'Черновик обучения сохранён. Откройте свою карту и продолжите с того же шага.'
+          :form?'Как и в разделе «Ваши сделки», сначала укажите название проекта и компанию.'
+          :'Помощник будет подсказывать, какую кнопку нажать прямо на карте. Вы добавите контакты, проведёте связи и получите собственную сделку.'}</p>
+      </section>
+      <section class="learn-panel learn-practice" aria-label="Начало практикума">
+      ${entry==='resume'?`<h3>${esc(stored.deal.title)}</h3><p>${esc(stored.deal.company)}</p>
+        <button type="button" class="btn primary" data-learn-builder="resume">Продолжить на карте</button>`
+        :form?`<form id="learn-deal-form" class="edit-form">
+          ${field('Название сделки','title','',{required:true,placeholder:'Например, внедрение портала',extra:'maxlength="160"'})}
+          ${field('Компания-клиент','company','',{required:true,placeholder:'Например, ООО Северная Линия',extra:'maxlength="160"'})}
+          ${submit('Создать и открыть карту')}</form>`
+        :`<h3>Что вы сделаете</h3><ol class="learn-plan"><li>Добавите двух участников</li><li>Создадите стрелки закупки, подчинения и влияния</li><li>Проверите карту и завершите обучение</li></ol>
+          <button type="button" class="btn primary" data-learn-builder="start">Начать</button>`}
+      </section></div>`;
+    if(focus)content.querySelector('h2').focus();
   }
-  draw();
-  root.addEventListener('submit',event=>{
-    if (event.target.id!=='learn-deal-form') return;
-    event.preventDefault();
-    if (!valid(event.target)) return;
-    const values=new FormData(event.target);
-    draft.deal={
-      id:draft.deal?.id || crypto.randomUUID(),
-      title:String(values.get('title')).trim(),
-      company:String(values.get('company')).trim()
-    };
-    switchStep(2);
-  },{signal});
+  draw(false);
   root.addEventListener('click',event=>{
-    const button=event.target.closest('button');
-    if (!button) return;
-    const {builderAction, builderPerson, builderMode, builderEdge} = button.dataset;
-    const kind=lessonKind();
-    if (builderAction==='back') return switchStep(draft.step-1);
-    if (builderAction==='skip-org') {
-      draft.skipOrg=true;
-      return switchStep(draft.step+1);
-    }
-    if (builderAction==='next') {
-      if (!canAdvance(slides[draft.step])) return;
-      if (draft.step<last) return switchStep(draft.step+1);
-      const deal={...draft.deal,created:Date.now()};
-      if (!dealRecord(deal.id)) saveRecord({deal,people:draft.people,edges:draft.edges,sources:['Учебная карта · вручную'],settings:defaultSettings(deal)});
-      saveLearningDraft(null);
-      go('map/'+deal.id);
-      return;
-    }
-    if (builderMode) {
-      previewMode=builderMode;
-      highlighted=null;
-      draw('[data-builder-mode="'+builderMode+'"]');return;
-    }
-    if (builderAction==='layout') {
-      menu=!menu;
-      draw('[data-builder-action="'+(menu?'edge-mode':'layout')+'"]');return;
-    }
-    if (builderAction==='edge-mode') {
-      editing=!editing;first='';
-      draw(editing?'[data-builder-person]':'[data-builder-action="edge-mode"]');return;
-    }
-    if (builderAction==='add-person'||(draft.step===2&&builderPerson)) {
-      const existing=draft.people.find(person=>person.id===builderPerson);
-      editParticipant(draft,existing,'process',(person,edge)=>{
-        const i=draft.people.findIndex(p=>p.id===person.id);
-        if(i>=0)draft.people[i]=person;else draft.people.push(person);
-        if (edge) draft.edges.push(edge);
-        commit();
-        draw('[data-builder-person="'+person.id+'"]');
-      });
-      return;
-    }
-    if (builderEdge!==undefined) {
-      highlighted=draft.edges[Number(builderEdge)];
-      draw('[data-builder-edge="'+builderEdge+'"]');return;
-    }
-    if (!kind||!editing||!builderPerson) return;
-    if (!first||first===builderPerson) {
-      first=first===builderPerson?'':builderPerson;
-      draw('[data-builder-person="'+builderPerson+'"]');return;
-    }
-    const edges=draft.edges.filter(edge=>edge.kind===kind);
-    const old=edges.find(edge=>edge.a===first && edge.b===builderPerson);
-    editRelation({mode:kind,people:draft.people,edges,old,from:first,to:builderPerson,endpoints:true,
-      onSave:edge=>{
-        if (old) draft.edges.splice(draft.edges.indexOf(old),1,edge);
-        else draft.edges.push(edge);
-        first='';highlighted=edge;commit();draw('[data-builder-action="next"]');
-      },
-      onRemove:()=>{
-        draft.edges=draft.edges.filter(edge=>edge!==old);
-        first='';highlighted=null;commit();draw('[data-builder-action="edge-mode"]');
-      }
-    });
+    const action=event.target.closest('[data-learn-builder]')?.dataset.learnBuilder;
+    if(action==='start'){entry='form';draw(true)}
+    if(action==='resume')openMap(stored);
   },{signal});
+  root.addEventListener('submit',event=>{
+    if(event.target.id!=='learn-deal-form')return;
+    event.preventDefault();
+    if(!valid(event.target))return;
+    const values=new FormData(event.target);
+    openMap({step:firstLesson,deal:{id:crypto.randomUUID(),title:String(values.get('title')).trim(),company:String(values.get('company')).trim()}});
+  },{signal});
+}
+
+export function mapLearningState(id) {
+  const draft=readLearningDraft();
+  return draft?.deal?.id===id && Number.isInteger(draft.step) && draft.step>=firstLesson && draft.step<=lastLesson ? draft : null;
+}
+
+function lessonDone(lesson, record) {
+  return lesson.kind ? record.edges.some(edge=>edge.kind===lesson.kind)
+    : !lesson.mode || record.people.length>=2;
+}
+
+export function drawMapLearning(panel, {training, record, mode, edgeEditing, edgeStart, pop, collapsed}) {
+  const app=panel.closest('.map-app');
+  delete app.dataset.learningTarget;
+  panel.hidden=!training;
+  if(!training){panel.innerHTML='';return}
+  const lesson=mapLessons[training.step-firstLesson];
+  const done=lessonDone(lesson,record);
+  let cue='';
+  if(done)cue=lesson.mode?'Шаг выполнен. Нажмите «Дальше».':'Нажмите «Завершить обучение», чтобы убрать подсказки.';
+  else if(mode!==lesson.mode){
+    cue='Откройте режим «'+modes[lesson.mode]+'» в меню карты.';
+    if(!collapsed)app.dataset.learningTarget=lesson.mode;
+  }else if(!lesson.kind){
+    cue='Нажмите «Участник». Добавлено: '+record.people.length+' из 2.';
+    if(!collapsed)app.dataset.learningTarget='person';
+  }else if(!edgeEditing){
+    cue=pop==='layout'?'Выберите «Редактирование связей».':'Откройте «Управление картой», затем «Редактирование связей».';
+    if(!collapsed)app.dataset.learningTarget=pop==='layout'?'edge-mode':'layout';
+  }else{
+    const person=record.people.find(p=>p.id===edgeStart);
+    cue=person?'Выбран '+person.name+'. Нажмите на карточку второго участника.':'Нажмите на карточку первого участника.';
+    if(!collapsed)app.dataset.learningTarget='cards';
+  }
+  const html=`<div class="map-learning-top"><strong>Помощник Cursor · ${training.step-firstLesson+1} из ${mapLessons.length}</strong>
+    <button type="button" class="text-act" data-map-learning="toggle" aria-expanded="${!collapsed}">${collapsed?'Показать подсказку':'Свернуть'}</button></div>
+    ${collapsed?'':`<div class="map-learning-body"><div><h2>${lesson.title}</h2><p>${lesson.text}</p><p class="map-learning-cue" role="status">${esc(cue)}</p></div>
+      <div class="map-learning-actions">${lesson.kind==='org'&&!done?'<button class="text-act" type="button" data-map-learning="skip">Пропустить подчинение</button>':''}
+      <button class="btn primary" type="button" data-map-learning="next" ${done?'':'disabled'}>${lesson.mode?'Дальше':'Завершить обучение'}</button></div></div>`}`;
+  const action=panel.contains(document.activeElement)?document.activeElement.dataset.mapLearning:null;
+  panel.innerHTML=html;
+  if(action)panel.querySelector('[data-map-learning="'+action+'"]')?.focus();
+}
+
+export function nextMapLearning(training, record, skip) {
+  const lesson=mapLessons[training.step-firstLesson];
+  if(!lessonDone(lesson,record) && !(skip&&lesson.kind==='org'))return training;
+  const next=training.step===lastLesson?null:{...training,step:training.step+1};
+  saveLearningDraft(next);
+  return next;
 }
