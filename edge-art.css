@@ -1,0 +1,66 @@
+.connection-layer {
+  position:absolute;
+  overflow:visible;
+  pointer-events:none;
+}
+.connection,
+.connection-example {
+  --edge-color:#426277;
+  --edge-width:2.2px;
+  --edge-dash:none;
+}
+.edge-formal {--edge-color:#81919b;--edge-width:1.5px}
+.edge-done {--edge-color:#8b959c;--edge-width:1.8px}
+.edge-established {--edge-color:#425c6c;--edge-width:2.4px}
+.edge-planned {--edge-color:#477e9e;--edge-dash:7 5}
+.edge-strong {--edge-color:#354c5b;--edge-width:3.3px}
+.edge-limited {--edge-color:#88959e;--edge-width:1.6px}
+.edge-assumed {--edge-color:#657987;--edge-width:1.8px;--edge-dash:5 5}
+.edge-current {--edge-color:#697d8a;--edge-width:1.8px}
+.edge-new {--edge-color:#815a9c;--edge-width:2.5px;--edge-dash:7 5}
+.edge-remove {--edge-color:#acb3b8;--edge-width:1.7px;--edge-dash:2 6}
+.edge-change {--edge-color:#815a9c;--edge-width:2.7px}
+.connection {outline:none}
+.connection.edge-muted {opacity:.3}
+.connection.edge-incident,.connection:hover,.connection:focus-visible {opacity:1}
+.connection-hit,
+.connection-halo,
+.connection-line,
+.connection-tip {
+  fill:none;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.connection-hit {
+  pointer-events:stroke;
+  cursor:pointer;
+  stroke:transparent;
+  stroke-width:16px;
+  vector-effect:non-scaling-stroke;
+}
+.connection-line,.connection-tip {
+  stroke:var(--edge-color);
+  stroke-width:var(--edge-width);
+  pointer-events:none;
+}
+.connection-line {stroke-dasharray:var(--edge-dash)}
+.connection-halo {stroke:var(--edge-color);stroke-width:8px;opacity:0;pointer-events:none}
+.connection.edge-incident .connection-halo {opacity:.11}
+.connection:is(:hover,:focus-visible) .connection-halo {opacity:.18}
+.connection:is(.edge-incident,:hover,:focus-visible) :is(.connection-line,.connection-tip) {
+  stroke-width:calc(var(--edge-width) + 1px);
+}
+.connection-legend {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:5px 11px;
+  grid-column:1/-1;
+  padding:7px 11px;
+}
+.legend-items .connection-legend {padding:3px 0; border-top:1px solid var(--line)}
+.connection-example {display:flex;align-items:center;gap:7px;font:400 11px/1.35 var(--body);color:#4f5d68}
+.connection-example svg {flex:none}
+@media (forced-colors:active) {
+  .connection-line,.connection-tip {stroke:CanvasText}
+  .connection:focus-visible .connection-halo {stroke:Highlight;opacity:.7}
+}
