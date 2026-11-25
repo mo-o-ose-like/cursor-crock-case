@@ -58,11 +58,11 @@ function intersects(a, b, rect) {
     Math.max(a.x, b.x) > rect.x && Math.min(a.x, b.x) < rect.x + rect.w;
 }
 
-function roundedPath(points) {
+function roundedPath(points, radius = 11) {
   let d = 'M' + coords(points[0]);
   for (let i = 1; i < points.length - 1; i++) {
     const a = points[i - 1], b = points[i], c = points[i + 1];
-    const r = Math.min(11, length(a, b) / 2, length(b, c) / 2);
+    const r = Math.min(radius, length(a, b) / 2, length(b, c) / 2);
     const toward = p => ({x: b.x + Math.sign(p.x - b.x) * r, y: b.y + Math.sign(p.y - b.y) * r});
     d += ' L' + coords(toward(a)) + ' Q' + coords(b) + ' ' + coords(toward(c));
   }
@@ -89,12 +89,16 @@ function portFraction(neighbors, index) {
 
 // A dense free layout can need more turns than the usual two-elbow connector.
 // Walk clear horizontal/vertical tracks just outside the surrounding rectangles.
-function clearDetour(s,t,obstacles){
+function clearDetour(s,t,obstacles,wide=false){
   const margin=48;
-  const left=Math.min(s.x,t.x)-margin,right=Math.max(s.x,t.x)+margin;
-  const top=Math.min(s.y,t.y)-margin,bottom=Math.max(s.y,t.y)+margin;
+  const surrounding=wide?obstacles:[];
+  const left=Math.min(s.x,t.x,...surrounding.map(r=>r.x))-margin;
+  const right=Math.max(s.x,t.x,...surrounding.map(r=>r.x+r.w))+margin;
+  const top=Math.min(s.y,t.y,...surrounding.map(r=>r.y))-margin;
+  const bottom=Math.max(s.y,t.y,...surrounding.map(r=>r.y+r.h))+margin;
   const nearby=obstacles.filter(r=>r.x<=right&&r.x+r.w>=left&&r.y<=bottom&&r.y+r.h>=top);
-  const tracks=(start,end,lo,hi,axis,span)=>[...new Set([start,end,lo,hi,...nearby.flatMap(r=>[r[axis]-12,r[axis]+r[span]+12]).filter(v=>v>=lo&&v<=hi)])].sort((a,b)=>a-b);
+  const gutter=wide?0:12;
+  const tracks=(start,end,lo,hi,axis,span)=>[...new Set([start,end,lo,hi,...nearby.flatMap(r=>[r[axis]-gutter,r[axis]+r[span]+gutter]).filter(v=>v>=lo&&v<=hi)])].sort((a,b)=>a-b);
   const xs=tracks(s.x,t.x,left,right,'x','w'),ys=tracks(s.y,t.y,top,bottom,'y','h');
   const columns=xs.length,first=ys.indexOf(s.y)*columns+xs.indexOf(s.x),last=ys.indexOf(t.y)*columns+xs.indexOf(t.x);
   const previous=new Map([[first,-1]]),queue=[first];
@@ -119,25 +123,49 @@ function clearDetour(s,t,obstacles){
 
 function route(a, b, f1, f2, obstacles, org) {
   const fromSides = preferredSides(a, b, org), toSides = preferredSides(b, a, org);
+  if (org) {
+    // Give non-endpoints room for the stroke, highlight, and rounded corners.
+    obstacles = obstacles.map(o => {
+      const pad = o === a || o === b ? 2 : 6;
+      return {x:o.x-pad,y:o.y-pad,w:o.w+2*pad,h:o.h+2*pad};
+    });
+    const verticalGap = Math.max(a.y,b.y) - Math.min(a.y+a.h,b.y+b.h);
+    if (a.group && a.group===b.group && a.x===b.x && a.w===b.w && verticalGap>=0 && verticalGap<=16) {
+      // Keep neighboring cards connected by a short, straight arrow.
+      f1 = f2 = (f1+f2)/2;
+    }
+  }
+  const ports = (from,to) => ({
+    start:port(a,from,f1,org?4:2),
+    end:port(b,to,f2,org?4:3)
+  });
+  const blocked = (a,b) => obstacles.some(o=>intersects(a,b,o));
   let best = null, bestScore = Infinity;
   for (const [i, from] of fromSides.entries()) {
     for (const [j, to] of toSides.entries()) {
       const preference = (i + j) * 33;
-      const start = port(a, from, f1, 2), end = port(b, to, f2, 3);
-      const s = shift(start, sides[from], 14), t = shift(end, sides[to], 10);
+      const {start,end} = ports(from,to);
+      const s = shift(start, sides[from], org?5:14), t = shift(end, sides[to], org?5:10);
       if (length(start, end) + preference >= bestScore) continue;
-      const test = bends => {
-        const points = simplify([start, s, ...bends, t, end]);
+      const scoreRoute = vertices => {
+        const points = simplify(vertices);
         if (!points) return;
         let score = preference + (points.length - 2) * 10;
         for (let k = 1; k < points.length; k++) {
           const a = points[k - 1], b = points[k];
           score += length(a, b);
           if (score >= bestScore) return;
-          for (const o of obstacles) if (intersects(a, b, o)) score += 12000;
+          if (org && blocked(a,b)) return;
+          if (!org) for (const o of obstacles) if (intersects(a, b, o)) score += 12000;
         }
         if (score < bestScore) {bestScore = score; best = points}
       };
+      const test = bends => scoreRoute([start,s,...bends,t,end]);
+      const dx=end.x-start.x,dy=end.y-start.y;
+      if (org && sides[from].x*dx+sides[from].y*dy===length(start,end) &&
+          sides[to].x*dx+sides[to].y*dy===-length(start,end)) {
+        scoreRoute([start,end]);
+      }
       // Start with compact orthogonal connectors. Extra lanes pass just outside
       // cards and department headers when a straight route would cross them.
       test([{x: s.x, y: t.y}]);
@@ -146,19 +174,20 @@ function route(a, b, f1, f2, obstacles, org) {
       const ys = new Set([(s.y + t.y) / 2, a.y - 13, a.y + a.h + 13, b.y - 13, b.y + b.h + 13]);
       for (const o of obstacles) {
         if (!intersects(s, {x:s.x,y:t.y}, o) && !intersects({x:s.x,y:t.y}, t, o)) continue;
-        xs.add(o.x - 11); xs.add(o.x + o.w + 11);
-        ys.add(o.y - 11); ys.add(o.y + o.h + 11);
+        const gap=org?0:11;
+        xs.add(o.x - gap); xs.add(o.x + o.w + gap);
+        ys.add(o.y - gap); ys.add(o.y + o.h + gap);
       }
       for (const x of xs) test([{x, y: s.y}, {x, y: t.y}]);
       for (const y of ys) test([{x: s.x, y}, {x: t.x, y}]);
     }
   }
-  if(best&&bestScore>=12000&&best.some((p,i)=>i>0&&obstacles.some(o=>intersects(best[i-1],p,o)))){
+  if((org&&!best)||(best&&bestScore>=12000&&best.some((p,i)=>i>0&&blocked(best[i-1],p)))){
     for(const from of fromSides)for(const to of toSides){
-      const start=port(a,from,f1,2),end=port(b,to,f2,3);
-      const s=shift(start,sides[from],14),t=shift(end,sides[to],14);
-      if(obstacles.some(o=>intersects(start,s,o)||intersects(t,end,o)))continue;
-      const detour=clearDetour(s,t,obstacles);
+      const {start,end}=ports(from,to),stub=org?5:14;
+      const s=shift(start,sides[from],stub),t=shift(end,sides[to],stub);
+      if(blocked(start,s)||blocked(t,end))continue;
+      const detour=clearDetour(s,t,obstacles,org);
       const path=detour&&simplify([start,...detour,end]);
       if(path)return path;
     }
@@ -178,7 +207,7 @@ export function edgeLegend(mode) {
 export function edgeArt(edges, model, mode, selected, matching, staleEdges) {
   const incidents = new Map();
   const obstacles = [...model.nodes.values()].filter(n => !n.hidden);
-  for (const g of model.groups) obstacles.push({x:g.x,y:g.y,w:g.w,h:g.collapsed ? g.h : 38});
+  for (const g of model.groups) obstacles.push(g.collapsed ? g : {x:g.x,y:g.y,w:g.w,h:38});
   const lines = [];
   edges.forEach((edge, index) => {
     const na = model.nodes.get(edge.a), nb = model.nodes.get(edge.b);
@@ -195,19 +224,21 @@ export function edgeArt(edges, model, mode, selected, matching, staleEdges) {
     const points = route(a, b, portFraction(incidents.get(a), index),
       portFraction(incidents.get(b), index), obstacles, mode === 'org');
     if (!points) return '';
-    const d = roundedPath(points);
+    const d = roundedPath(points, mode === 'org' ? 5 : 11);
     const type = lineType(edge, mode);
     const label = esc(na.p.name + ' → ' + nb.p.name + '. ' + labels[mode][type]);
     const faded = matching && !matching.get(edge.a) && !matching.get(edge.b);
     const incident = edge.a === selected || edge.b === selected;
     const end = points.at(-1), prev = points.at(-2);
     const angle = Math.round(Math.atan2(end.y - prev.y, end.x - prev.x) * 180 / Math.PI);
+    const tipLength = mode === 'org' ? Math.min(7, length(prev,end)) : 7;
+    const tipWidth = Math.min(4, tipLength * 0.6);
     const stale=staleEdges?.has(JSON.stringify([edge.kind,edge.a,edge.b]));
     return '<g class="connection edge-' + type + (stale?' stale-connection':'') + (faded ? ' edge-muted' : '') + (incident ? ' edge-incident' : '') +
       '" data-edge-index="' + index + '" role="button" tabindex="0" aria-label="' + label + '">' +
       '<path class="connection-hit" d="' + d + '"/><path class="connection-halo" d="' + d + '"/>' +
       '<path class="connection-line" d="' + d + '"/><path class="connection-tip" transform="translate(' + coords(end) +
-      ') rotate(' + angle + ')" d="M-7 -4 0 0-7 4"/></g>';
+      ') rotate(' + angle + ')" d="M-' + fmt(tipLength) + ' -' + fmt(tipWidth) + ' 0 0-' + fmt(tipLength) + ' ' + fmt(tipWidth) + '"/></g>';
   }).join('');
   const box = model.bounds;
   // A real viewport makes links interactive at negative coordinates as well.
