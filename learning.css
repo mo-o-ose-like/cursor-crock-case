@@ -60,3 +60,18 @@
   .learn-grid {grid-template-columns:minmax(0,1fr);gap:12px}
   .learn-panel {padding:18px}
 }
+
+.learn-top-nav,.learn-board-title {display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.learn-top-nav > a:last-child {color:var(--nav);text-underline-offset:3px}
+.learn-coach {display:flex;align-items:center;gap:8px;color:var(--nav);font-size:14px;font-weight:600;margin-bottom:16px}
+.learn-coach img {width:31px;height:auto}
+.learn-welcome > img {width:66px;height:auto;display:block;margin:0 0 18px}
+.learn-welcome ul {padding-left:20px;margin-bottom:4px}
+.learn-welcome li+li {margin-top:8px}
+.learn-board-title h3 {margin:4px 0 12px}
+.learn-board-title small,.learn-board-empty {color:var(--muted);overflow-wrap:anywhere}
+.learn-board-status {margin-top:10px;color:var(--nav)}
+.learn-person[aria-pressed="true"] {background:#e4eff6;border-color:var(--brand)}
+.learn-person-role {font-weight:600}
+.learn-board-empty {margin-top:12px}
+.learn-slide-actions {margin-top:22px}

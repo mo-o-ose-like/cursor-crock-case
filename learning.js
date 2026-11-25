@@ -64,7 +64,7 @@ export function mountLearning({id, root, header, signal}) {
   resetTask();
   document.title='Обучение — Cursor';
   root.innerHTML=header()+`<main class="learning">
-    <a href="${mapLink}" class="back"> ${icon('back',16)} К карте сделки</a>
+    <nav class="learn-top-nav" aria-label="Навигация по обучению"><a href="${mapLink}" class="back">${icon('back',16)} К карте сделки</a><a href="#learn${id && dealRecord(id)?'/'+esc(id):''}">Создать свою карту</a></nav>
     <header class="learn-heading"><h1>Обучение Cursor</h1><p>Вы готовите сделку к бюджетному комитету. Пройдите пять заданий на учебной карте и потренируйтесь перед работой с клиентом.</p></header>
     <div id="learning-content"></div>
   </main>`;

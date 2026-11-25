@@ -1,3 +1,4 @@
+import {mountLearningBuilder} from './learning-builder.js';
 import {mountLearning} from './learning.js';
 import {icon,brand,eyes,button,crmButton,searchField,dealRow} from './components.js';
 import {marked,searchHits,terms} from './map-search.js';
@@ -90,7 +91,7 @@ function render(){
   if(hash==='preview-deals')session(true);
   if(hash==='login')session(false);
   const [route,id]=hash.split('/');
-  const routes=['all','new','review','import','map','settings','learn'];
+  const routes=['all','new','review','import','map','settings','learn','learn-review'];
   if(!signedIn)destination=routes.includes(route)?hash:'deals';
   current=!signedIn?'login':routes.includes(route)?route:'deals';
   query='';
@@ -101,7 +102,8 @@ function render(){
   else if(['new','review','import'].includes(current))mountCreation(ctx);
   else if(current==='map'){if(dealRecord(id))opened(id);mountMap(ctx)}
   else if(current==='settings')mountSettings(ctx);
-  else if(current==='learn')mountLearning(ctx);
+  else if(current==='learn')mountLearningBuilder(ctx);
+  else if(current==='learn-review')mountLearning(ctx);
   else dealsPage();
   window.scrollTo(0,0);
 }
