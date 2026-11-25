@@ -26,6 +26,8 @@ const shift = (p, dir, distance) => ({x: p.x + dir.x * distance, y: p.y + dir.y 
 const length = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 const fmt = n => Math.round(n * 10) / 10;
 const coords = p => fmt(p.x) + ' ' + fmt(p.y);
+const departure = 26;
+const departureRadius = 8;
 
 function port(box, side, fraction, clearance) {
   const dir = sides[side];
@@ -58,11 +60,11 @@ function intersects(a, b, rect) {
     Math.max(a.x, b.x) > rect.x && Math.min(a.x, b.x) < rect.x + rect.w;
 }
 
-function roundedPath(points, radius = 11) {
+function roundedPath(points, radius = 11, uniformDeparture = false) {
   let d = 'M' + coords(points[0]);
   for (let i = 1; i < points.length - 1; i++) {
     const a = points[i - 1], b = points[i], c = points[i + 1];
-    const r = Math.min(radius, length(a, b) / 2, length(b, c) / 2);
+    const r = Math.min(uniformDeparture && i === 1 ? departureRadius : radius, length(a, b) / 2, length(b, c) / 2);
     const toward = p => ({x: b.x + Math.sign(p.x - b.x) * r, y: b.y + Math.sign(p.y - b.y) * r});
     d += ' L' + coords(toward(a)) + ' Q' + coords(b) + ' ' + coords(toward(c));
   }
@@ -89,7 +91,7 @@ function portFraction(neighbors, index) {
 
 // A dense free layout can need more turns than the usual two-elbow connector.
 // Walk clear horizontal/vertical tracks just outside the surrounding rectangles.
-function clearDetour(s,t,obstacles,wide=false){
+function clearDetour(s,t,obstacles,wide=false,departureDirection=0){
   const margin=48;
   const surrounding=wide?obstacles:[];
   const left=Math.min(s.x,t.x,...surrounding.map(r=>r.x))-margin;
@@ -112,6 +114,7 @@ function clearDetour(s,t,obstacles,wide=false){
     for(const n of next){
       if(previous.has(n))continue;
       const b=point(n);
+      if(key===first && departureDirection*(b.y-a.y)<0)continue;
       if(nearby.some(rect=>intersects(a,b,rect)))continue;
       previous.set(n,key);queue.push(n);
     }
@@ -121,7 +124,7 @@ function clearDetour(s,t,obstacles,wide=false){
   return path.reverse();
 }
 
-function route(a, b, f1, f2, obstacles, org, fixedSides) {
+function route(a, b, f1, f2, obstacles, org, fixedSides, uniformDeparture = false) {
   const fromSides = fixedSides ? [fixedSides[0]] : preferredSides(a, b, org);
   const toSides = fixedSides ? [fixedSides[1]] : preferredSides(b, a, org);
   if (org) {
@@ -146,11 +149,14 @@ function route(a, b, f1, f2, obstacles, org, fixedSides) {
     for (const [j, to] of toSides.entries()) {
       const preference = (i + j) * 33;
       const {start,end} = ports(from,to);
-      const s = shift(start, sides[from], org?5:14), t = shift(end, sides[to], org?5:10);
+      const s = shift(start, sides[from], uniformDeparture ? departure : org ? 5 : 14);
+      const t = shift(end, sides[to], org?5:10);
       if (length(start, end) + preference >= bestScore) continue;
       const scoreRoute = vertices => {
         const points = simplify(vertices);
         if (!points) return;
+        if (uniformDeparture && (points.length < 3 || length(start, points[1]) !== departure ||
+            length(points[1], points[2]) < departureRadius * 2)) return;
         let score = preference + (points.length - 2) * 10;
         for (let k = 1; k < points.length; k++) {
           const a = points[k - 1], b = points[k];
@@ -183,7 +189,21 @@ function route(a, b, f1, f2, obstacles, org, fixedSides) {
       for (const y of ys) test([{x: s.x, y}, {x: t.x, y}]);
     }
   }
-  if((org&&!best)||(best&&bestScore>=12000&&best.some((p,i)=>i>0&&blocked(best[i-1],p)))){
+  if(uniformDeparture&&!best){
+    const [from]=fromSides,[to]=toSides;
+    const {start,end}=ports(from,to);
+    const corner=shift(start,sides[from],departure),target=shift(end,sides[to],5);
+    if(blocked(start,corner)||blocked(target,end))return null;
+    const direction=target.y>=corner.y?1:-1;
+    for(const turn of [direction,-direction]){
+      const next={x:corner.x,y:corner.y+turn*departureRadius*2};
+      if(blocked(corner,next))continue;
+      const detour=clearDetour(next,target,obstacles,true,turn);
+      const path=detour&&simplify([start,corner,...detour,end]);
+      if(path?.length>=3&&length(start,path[1])===departure&&length(path[1],path[2])>=departureRadius*2)return path;
+    }
+  }
+  if(!uniformDeparture&&((org&&!best)||(best&&bestScore>=12000&&best.some((p,i)=>i>0&&blocked(best[i-1],p))))){
     for(const from of fromSides)for(const to of toSides){
       const {start,end}=ports(from,to),stub=org?5:14;
       const s=shift(start,sides[from],stub),t=shift(end,sides[to],stub);
@@ -231,7 +251,16 @@ function spaceOrgPorts(lines, obstacles) {
   for (const line of lines) {
     if (!line.ports?.some(port=>port.spread)) continue;
     const [from,to] = line.ports;
-    line.points = route(line.a,line.b,from.fraction,to.fraction,obstacles,true,[from.side,to.side]) ?? line.points;
+    const sides = [from.side,to.side];
+    if (from.spread && (from.side === 'left' || from.side === 'right')) {
+      const points = route(line.a,line.b,from.fraction,to.fraction,obstacles,true,sides,true);
+      if (points) {
+        line.points = points;
+        line.uniformDeparture = true;
+        continue;
+      }
+    }
+    line.points = route(line.a,line.b,from.fraction,to.fraction,obstacles,true,sides) ?? line.points;
   }
 }
 
@@ -267,9 +296,9 @@ export function edgeArt(edges, model, mode, selected, matching, staleEdges) {
       portFraction(incidents.get(b),index),obstacles,org);
   }
   if (org) spaceOrgPorts(lines,obstacles);
-  const groups = lines.map(({edge, index, na, nb, points}) => {
+  const groups = lines.map(({edge, index, na, nb, points, uniformDeparture}) => {
     if (!points) return '';
-    const d = roundedPath(points, org ? 12 : 11);
+    const d = roundedPath(points, org ? 12 : 11, uniformDeparture);
     const type = lineType(edge, mode);
     const label = esc(na.p.name + ' → ' + nb.p.name + '. ' + labels[mode][type]);
     const faded = matching && !matching.get(edge.a) && !matching.get(edge.b);

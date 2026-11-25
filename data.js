@@ -54,7 +54,7 @@ export const getView=id=>read(viewPrefix+id,{mode:'process',views:{}});
 export const saveView=(id,v)=>write(viewPrefix+id,v);
 export function wordsOf(value) {
   if(Array.isArray(value))return value.map(wordsOf).join(' ');
-  if(value && typeof value==='object')return Object.values(value).map(wordsOf).join(' ');
+  if(value && typeof value==='object')return Object.entries(value).filter(([key])=>key!=='photo').map(([,entry])=>wordsOf(entry)).join(' ');
   return value==null?'':String(value);
 }
 export function matches(query) {

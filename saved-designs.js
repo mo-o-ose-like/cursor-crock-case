@@ -44,11 +44,13 @@ const labels={
   task:'Задача в закупке',stage:'Этап',state:'Участие',attitude:'Отношение к сделке',contact:'Контакт',role:'Роль',
   decision:'ЛПР',primary:'Основной контакт',influence:'Степень влияния',risks:'Риски',opinions:'Мнения',disc:'DISC',
   goals:'Цели',preferences:'Предпочтения',goalHint:'Гипотеза о целях',preferenceHint:'Гипотеза о предпочтениях',
+  photo:'Фото контакта',telegram:'Ник в Telegram',
   agreements:'Договорённости',source:'Источник',sources:'Источники',product:'Предложение',budget:'Бюджет',goal:'Цель',
   plan:'План',constraints:'Ограничения',status:'Статус',strength:'Тип связи',text:'Описание',date:'Дата',
   participant:'Участник',position:'Должность',agreement:'Договорённость',tags:'Метки',notes:'Заметки',modes:'Режимы'
 };
 function display(value,key,kind){
+  if(key==='photo')return value?'Есть фото':'Без фото';
   if(value==null||value==='')return 'Не указано';
   if(typeof value==='boolean')return value?'Да':'Нет';
   if(Array.isArray(value))return value.map(x=>display(x,key,kind)).join(' · ')||'Пусто';
