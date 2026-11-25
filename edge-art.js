@@ -121,8 +121,9 @@ function clearDetour(s,t,obstacles,wide=false){
   return path.reverse();
 }
 
-function route(a, b, f1, f2, obstacles, org) {
-  const fromSides = preferredSides(a, b, org), toSides = preferredSides(b, a, org);
+function route(a, b, f1, f2, obstacles, org, fixedSides) {
+  const fromSides = fixedSides ? [fixedSides[0]] : preferredSides(a, b, org);
+  const toSides = fixedSides ? [fixedSides[1]] : preferredSides(b, a, org);
   if (org) {
     // Give non-endpoints room for the stroke, highlight, and rounded corners.
     obstacles = obstacles.map(o => {
@@ -130,7 +131,7 @@ function route(a, b, f1, f2, obstacles, org) {
       return {x:o.x-pad,y:o.y-pad,w:o.w+2*pad,h:o.h+2*pad};
     });
     const verticalGap = Math.max(a.y,b.y) - Math.min(a.y+a.h,b.y+b.h);
-    if (a.group && a.group===b.group && a.x===b.x && a.w===b.w && verticalGap>=0 && verticalGap<=16) {
+    if (!fixedSides && a.group && a.group===b.group && a.x===b.x && a.w===b.w && verticalGap>=0 && verticalGap<=16) {
       // Keep neighboring cards connected by a short, straight arrow.
       f1 = f2 = (f1+f2)/2;
     }
@@ -195,6 +196,45 @@ function route(a, b, f1, f2, obstacles, org) {
   return best;
 }
 
+function sideOf(box, point) {
+  if (point.x < box.x) return 'left';
+  if (point.x > box.x + box.w) return 'right';
+  return point.y < box.y ? 'top' : 'bottom';
+}
+
+function spaceOrgPorts(lines, obstacles) {
+  const byBox = new Map();
+  for (const line of lines) {
+    if (!line.points) continue;
+    line.ports = [[line.a, line.b, line.points[0]], [line.b, line.a, line.points.at(-1)]]
+      .map(([box, peer, point]) => {
+        const side = sideOf(box, point);
+        if (!byBox.has(box)) byBox.set(box, {});
+        const lane = byBox.get(box)[side] ??= [];
+        const axis = sides[side].x ? 'y' : 'x';
+        const c = center(box), p = center(peer);
+        const port = {side, axis, point, target:p[axis], fraction:(point[axis]-box[axis]) / (axis==='x'?box.w:box.h)};
+        lane.push(port);
+        return port;
+      });
+  }
+  for (const lanes of byBox.values()) {
+    for (const lane of Object.values(lanes)) {
+      if (lane.length < 2) continue;
+      lane.sort((a,b) => a.target-b.target || a.point[a.axis]-b.point[b.axis]);
+      lane.forEach((port,i) => {
+        port.fraction = 0.22 + 0.56 * i / (lane.length-1);
+        port.spread = true;
+      });
+    }
+  }
+  for (const line of lines) {
+    if (!line.ports?.some(port=>port.spread)) continue;
+    const [from,to] = line.ports;
+    line.points = route(line.a,line.b,from.fraction,to.fraction,obstacles,true,[from.side,to.side]) ?? line.points;
+  }
+}
+
 export function edgeLegend(mode) {
   const entries = Object.entries(labels[mode] || {});
   if (!entries.length) return '';
@@ -205,6 +245,7 @@ export function edgeLegend(mode) {
 }
 
 export function edgeArt(edges, model, mode, selected, matching, staleEdges) {
+  const org = mode === 'org';
   const incidents = new Map();
   const obstacles = [...model.nodes.values()].filter(n => !n.hidden);
   for (const g of model.groups) obstacles.push(g.collapsed ? g : {x:g.x,y:g.y,w:g.w,h:38});
@@ -220,11 +261,15 @@ export function edgeArt(edges, model, mode, selected, matching, staleEdges) {
     }
     lines.push({edge, index, na, nb, a, b});
   });
-  const groups = lines.map(({edge, index, na, nb, a, b}) => {
-    const points = route(a, b, portFraction(incidents.get(a), index),
-      portFraction(incidents.get(b), index), obstacles, mode === 'org');
+  for (const line of lines) {
+    const {a,b,index} = line;
+    line.points = route(a,b,portFraction(incidents.get(a),index),
+      portFraction(incidents.get(b),index),obstacles,org);
+  }
+  if (org) spaceOrgPorts(lines,obstacles);
+  const groups = lines.map(({edge, index, na, nb, points}) => {
     if (!points) return '';
-    const d = roundedPath(points, mode === 'org' ? 5 : 11);
+    const d = roundedPath(points, org ? 12 : 11);
     const type = lineType(edge, mode);
     const label = esc(na.p.name + ' → ' + nb.p.name + '. ' + labels[mode][type]);
     const faded = matching && !matching.get(edge.a) && !matching.get(edge.b);
