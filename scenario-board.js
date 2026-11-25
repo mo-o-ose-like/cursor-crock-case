@@ -33,7 +33,8 @@ export function scenarioBoard(record,view,modelFor){
   }
   describe(graph);
   if(!view.assistantEnabled)return {graph,advice:null};
-  const advice=proposals(record,graph,events,branch.messages);
+  // Rule-based actions remain for legacy messages; AI questions never execute map commands.
+  const advice=proposals(record,graph,events,branch.messages.filter(m=>!m.ai));
   const suggestion=modelFor?.(record,graph,events,branch.messages);
   if(suggestion){
     advice.items.unshift({...suggestion,kind:'advice'});
@@ -62,6 +63,14 @@ export function scenarioBoard(record,view,modelFor){
       const person=projected.people.find(p=>p.id===question.personId);
       question.text=(person?person.name+' · ':'')+emptyText[question.requestedKind];
     }
+  }
+  for(const message of branch.messages.filter(m=>m.ai)){
+    const answer=message.answer;
+    let text=message.status==='pending'?'Анализирую данные сделки…':message.status==='error'?message.error:answer?.answer||'Ответ не сохранён. Отправьте вопрос ещё раз.';
+    if(answer?.suggestions?.length)text+='\n\n'+answer.suggestions.map(s=>'• '+s).join('\n');
+    if(answer?.coverage&&answer.coverage.used<answer.coverage.total)text+='\n\nИспользована часть источников: '+answer.coverage.used+' из '+answer.coverage.total+'. Для подробного разбора уточните участника или вопрос.';
+    advice.items.push({id:'message-'+message.id,kind:'advice',requestedKind:'conversation',ai:true,heading:'Разбор Cursor',text,
+      sources:(answer?.citations||[]).map(s=>({label:'['+s.id+'] '+s.label,detail:s.text,personId:s.personId})),targets:{people:[],edges:[]}});
   }
   for(const p of projected.people){
     const action=advice.actions[p.id];if(action)p.proposalAction=action;
@@ -103,7 +112,8 @@ function findingHTML(advice,it,branch,interactive=false){
   }
   if(it.kind==='advice'&&it.stage)extra+='<div class="finding-detail"><b>Этап</b> '+esc(it.stage)+'</div>';
   const location=target?'<p class="finding-location" data-finding-location hidden></p>':'';
-  return '<article class="chat-reply finding-'+it.kind+'"'+attrs+'>'+header+subject+'<p>'+esc(it.text)+'</p>'+extra+'<div class="citations" aria-label="Источники">'+evidenceLinks(advice,it)+'</div>'+location+'</article>';
+  const body=it.ai?it.text.split(/\n+/).filter(Boolean).map(line=>'<p>'+esc(line)+'</p>').join(''):'<p>'+esc(it.text)+'</p>';
+  return '<article class="chat-reply finding-'+it.kind+'"'+attrs+'>'+header+subject+body+extra+'<div class="citations" aria-label="Источники">'+evidenceLinks(advice,it)+'</div>'+location+'</article>';
 }
 
 export function personRisksHTML(advice,p){
