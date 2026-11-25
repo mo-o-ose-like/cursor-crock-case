@@ -1,5 +1,7 @@
 import {drawMapLearning, mapLearningState, nextMapLearning} from './learning-builder.js';
 import {caseForModel,inferProposal} from './local-model.js';
+import {askGroq} from './groq-chat.js';
+import {sourceText} from './source-text.js';
 import {loadDesigns,saveDesign,restoreDesign,deleteDesign,dealChanges,changeDetails,designList} from './saved-designs.js';
 import {edgeArt,edgeLegend} from './edge-art.js';
 import {boardSpace,frameBoard,frameObjects,wasAutomatic} from './board-camera.js';
@@ -78,10 +80,19 @@ export function mountMap({id,root,go,signal,search}){
   let comparedRecord=null,comparedDesign=null;
   let advice=null,removedCount=0,chatOpen=false,edgeIndex=-1,edgeEditing=false,edgeStart=null,ghostId=null,edgePoint=null;
   const state=getView(id);if(!modes[state.mode])state.mode='process';
+  for(const view of Object.values(state.views||{}))for(const branch of Object.values(view.branches||{}))for(const message of branch.messages||[]){
+    if(message.ai&&message.status==='pending'){message.status='error';message.error='Запрос прерван при закрытии страницы. Отправьте вопрос ещё раз.';}
+  }
   let mode=state.mode,v,graph,model,pop='',transient=null,suppressClick=false;
   let observer=null,layoutSpace=null,dragFrame=0;
   let previewTimer,hideTimer,previewEdge=null;
   const results=new Map();
+  const chatResponses=new Map();
+  function syncChatResponses(){
+    for(const branch of Object.values(state.views.scenario?.branches||{}))for(const message of branch.messages||[]){
+      if(message.ai&&message.status==='pending'&&chatResponses.has(message.id))Object.assign(message,chatResponses.get(message.id));
+    }
+  }
   function localModel(activeRecord,base,events,messages){
     if(!globalThis.LanguageModel)return null;
     const input=caseForModel(activeRecord,base,events,messages);
@@ -233,6 +244,7 @@ export function mountMap({id,root,go,signal,search}){
     }
   }
   function buildGraph(){
+    syncChatResponses();
     activeDesign=mode==='scenario'?findDesign(v):null;
     if(activeDesign!==comparedDesign||record!==comparedRecord){
       differences=activeDesign?dealChanges(activeDesign.baseline,record):[];
@@ -295,7 +307,7 @@ export function mountMap({id,root,go,signal,search}){
     const panel=$('#inspector'),p=training&&edgeEditing?null:graph.people.find(x=>x.id===v.selected);
     const chat=mode==='scenario'&&v.assistantEnabled&&chatOpen;
     panel.hidden=!p&&!chat;$('.map-content').classList.toggle('with-panel',!panel.hidden);
-    if(chat){panel.setAttribute('aria-label','Чат помощника');panel.innerHTML=chatHTML(advice,branchFor(v),p,insightKind);$('#proposal-input').value=drafts.get(draftKey())||'';paintFinding();return}
+    if(chat){panel.setAttribute('aria-label','Чат помощника');panel.innerHTML=chatHTML(advice,branchFor(v),p,insightKind);$('#proposal-input').value=drafts.get(draftKey())||'';$('#chat-form button[type="submit"]').disabled=branchFor(v).messages.some(m=>m.ai&&m.status==='pending');paintFinding();return}
     panel.setAttribute('aria-label','Карточка участника');
     if(p){
       const available=Object.keys(modes).filter(key=>key!==mode&&graphIn(key).people.some(person=>person.id===p.id));
@@ -564,7 +576,7 @@ export function mountMap({id,root,go,signal,search}){
     const participant=graph.people.find(p=>p.id===source.personId);
     const agreement=source.agreement&&participant?participant.agreements.findIndex(a=>a.title===source.agreement.title&&(a.date||'')===source.agreement.date):-1;
     const edgeIndex=source.edge&&v.comparison!=='before'?graph.edges.findIndex(e=>e.a===source.edge[0]&&e.b===source.edge[1]):-1;
-    const dialog=modal(source.label,'<div class="source-detail"><p>'+esc(source.detail)+'</p>'+(agreement>=0?'<button class="btn secondary" data-evidence-agreement>Открыть договорённость</button>':'')+(exists?'<button class="btn secondary" data-evidence-person>Открыть участника</button>':'')+(edgeIndex>=0?'<button class="btn secondary" data-evidence-edge>Открыть связь</button>':'')+'</div>');
+    const dialog=modal(source.label,'<div class="source-detail">'+sourceText(source.detail,record).split(/\n+/).filter(Boolean).map(line=>'<p>'+esc(line)+'</p>').join('')+(agreement>=0?'<button class="btn secondary" data-evidence-agreement>Открыть договорённость</button>':'')+(exists?'<button class="btn secondary" data-evidence-person>Открыть участника</button>':'')+(edgeIndex>=0?'<button class="btn secondary" data-evidence-edge>Открыть связь</button>':'')+'</div>');
     dialog.querySelector('[data-evidence-agreement]')?.addEventListener('click',()=>{dialog.close();v.sections[source.personId]=[...new Set([...(v.sections[source.personId]||[]),'agreements'])];pick(source.personId);const row=root.querySelector('[data-agreement-index="'+agreement+'"]');row?.scrollIntoView?.({block:'nearest'});row?.focus()});
     dialog.querySelector('[data-evidence-person]')?.addEventListener('click',()=>{dialog.close();pick(source.personId)});
     dialog.querySelector('[data-evidence-edge]')?.addEventListener('click',()=>{dialog.close();edgeEditing=false;edgeStart=null;pick(source.edge[1]);selectEdge(edgeIndex)});
@@ -699,12 +711,22 @@ export function mountMap({id,root,go,signal,search}){
     if(e.target.id==='chat-form'){
       e.preventDefault();const message=e.target.elements.message.value.trim();
       if(!message||!v.assistantEnabled||mode!=='scenario')return;
+      const branch=branchFor(v);
+      if(branch.messages.some(m=>m.ai&&m.status==='pending'))return;
+      const activeRecord=findDesign(v)?.baseline||record;
+      const base=scenarioBoard(activeRecord,{...v,assistantEnabled:false}).graph;
       v.comparison='after';ghostId=null;
       drafts.delete(draftKey());resetFinding();
-      editView('Предложение в чате',()=>branchFor(v).messages.push({id:crypto.randomUUID(),personId:v.selected,text:message}));
+      const question={id:crypto.randomUUID(),personId:v.selected,text:message,ai:true,status:'pending'};
+      editView('Предложение в чате',()=>branch.messages.push(question));
       const log=$('.chat-log');log.scrollTop=log.scrollHeight;
-      const added=advice.people.at(-1);if(added?.id==='proposal-'+branchFor(v).messages.at(-1)?.id&&v.comparison!=='before')reveal(added.id);
-      $('#proposal-input')?.focus();notify('Предположение добавлено в переписку');save();return;
+      askGroq({record:structuredClone(activeRecord),graph:structuredClone(base),scenario:{name:v.scenario||'base',label:scenarios[v.scenario]?.[0]||'Свой сценарий',events:eventList(v)},branch,message:question,signal,
+        onChange:()=>{
+          chatResponses.set(question.id,structuredClone(question));syncChatResponses();
+          save();if(signal.aborted)return;
+          if(mode==='scenario'){refresh();const log=$('.chat-log');if(log)log.scrollTop=log.scrollHeight;}
+        }});
+      $('#proposal-input')?.focus();save();return;
     }
     const kind=e.target.dataset?.simForm;
     if(mode==='scenario'&&['worse','contract'].includes(kind)){
