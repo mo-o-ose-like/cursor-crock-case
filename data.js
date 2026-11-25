@@ -76,3 +76,10 @@ export function opened(id) {
 export function blankPerson() {
   return {id:crypto.randomUUID(),name:'',title:'',dept:'',level:'',formal:'',task:'',stage:'',state:'active',attitude:'Неизвестно',contact:'Нет данных',role:'',decision:false,primary:false,influence:'Неизвестно',risks:[],opinions:[],disc:null,goals:[],preferences:[],goalHint:'',preferenceHint:'',agreements:[],source:'Вручную'};
 }
+
+const learningKey = 'cursor.demo.learning.v1';
+export function readLearningProgress() {
+  const step = read(learningKey, 0);
+  return Number.isInteger(step) && step >= 0 ? step : 0;
+}
+export const saveLearningProgress = step => write(learningKey, step);

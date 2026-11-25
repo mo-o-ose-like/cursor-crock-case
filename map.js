@@ -25,7 +25,7 @@ const legendText={
   scenario:[['amber','Изменение сценария']]
 };
 function sideNav(mode,id){
-  return `<aside class="map-nav"><a class="map-brand" href="#deals" aria-label="Cursor — ваши сделки">${brand()}</a><span class="nav-label">Режимы</span><nav aria-label="Режимы карты">${Object.entries(modes).map(([key,text])=>`<button class="nav-item ${key===mode?'active':''}" type="button" data-mode="${key}" aria-pressed="${key===mode}" title="${text}">${text}</button>`).join('')}</nav><div class="nav-bottom"><a class="nav-item" href="#settings/${esc(id)}" title="Настройки сделки">${icon('settings',18)}<span>Настройки сделки</span></a><a class="nav-item" href="#deals" title="К сделкам">${icon('back',18)}<span>К сделкам</span></a></div></aside>`;
+  return `<aside class="map-nav"><a class="map-brand" href="#deals" aria-label="Cursor — ваши сделки">${brand()}</a><span class="nav-label">Режимы</span><nav aria-label="Режимы карты">${Object.entries(modes).map(([key,text])=>`<button class="nav-item ${key===mode?'active':''}" type="button" data-mode="${key}" aria-pressed="${key===mode}" title="${text}">${text}</button>`).join('')}</nav><div class="nav-bottom"><a class="nav-item" href="#learn/${esc(id)}" title="Обучение">${icon('help',18)}<span>Обучение</span></a><a class="nav-item" href="#settings/${esc(id)}" title="Настройки сделки">${icon('settings',18)}<span>Настройки сделки</span></a><a class="nav-item" href="#deals" title="К сделкам">${icon('back',18)}<span>К сделкам</span></a></div></aside>`;
 }
 function toolBar(mode,v){
   const process=mode==='process';
