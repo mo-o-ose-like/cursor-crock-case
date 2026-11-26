@@ -38,8 +38,15 @@ export function scenarioGraph(record,code,events=[]){
   }
   return projectEvents(result,events);
 }
+export function automaticRisks(p){
+  const risks=[];
+  if(!p.role)risks.push('Не определена роль');
+  if(!p.stage)risks.push('Не определён этап');
+  if(!p.contact||p.contact==='Нет данных')risks.push('Неизвестен статус контакта');
+  return risks;
+}
 export function risksFor(p){
-  const r=[...p.risks];if(!p.role)r.push('Не определена роль');if(!p.stage)r.push('Не определён этап');if(!p.contact||p.contact==='Нет данных')r.push('Неизвестен статус контакта');return r;
+  return [...(p.risks??[]),...automaticRisks(p)];
 }
 export function matchesPerson(p,view,mode='process'){
   const tokens=terms(view.query);
