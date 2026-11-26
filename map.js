@@ -1,3 +1,4 @@
+import {drawMapLearning, mapLearningState, nextMapLearning} from './learning-builder.js';
 import {caseForModel,inferProposal} from './local-model.js';
 import {askGroq} from './groq-chat.js';
 import {sourceText} from './source-text.js';
@@ -27,7 +28,7 @@ const legendText={
   scenario:[['amber','Изменение сценария']]
 };
 function sideNav(mode,id){
-  return `<aside class="map-nav"><a class="map-brand" href="#deals" aria-label="Cursor — ваши сделки">${brand()}</a><span class="nav-label">Режимы</span><nav aria-label="Режимы карты">${Object.entries(modes).map(([key,text])=>`<button class="nav-item ${key===mode?'active':''}" type="button" data-mode="${key}" aria-pressed="${key===mode}" title="${text}">${text}</button>`).join('')}</nav><div class="nav-bottom"><a class="nav-item" href="#settings/${esc(id)}" title="Настройки сделки">${icon('settings',18)}<span>Настройки сделки</span></a><a class="nav-item" href="#deals" title="К сделкам">${icon('back',18)}<span>К сделкам</span></a></div></aside>`;
+  return `<aside class="map-nav"><a class="map-brand" href="#deals" aria-label="Cursor — ваши сделки">${brand()}</a><span class="nav-label">Режимы</span><nav aria-label="Режимы карты">${Object.entries(modes).map(([key,text])=>`<button class="nav-item ${key===mode?'active':''}" type="button" data-mode="${key}" aria-pressed="${key===mode}" title="${text}">${text}</button>`).join('')}</nav><div class="nav-bottom"><a class="nav-item" href="#learn/${esc(id)}" title="Обучение">${icon('help',18)}<span>Обучение</span></a><a class="nav-item" href="#settings/${esc(id)}" title="Настройки сделки">${icon('settings',18)}<span>Настройки сделки</span></a><a class="nav-item" href="#deals" title="К сделкам">${icon('back',18)}<span>К сделкам</span></a></div></aside>`;
 }
 function toolBar(mode,v){
   const process=mode==='process';
@@ -67,6 +68,7 @@ function unknowns(r){
 function freshMode(){return {query:'',filters:{},positions:{},sections:{},collapsed:[],selected:null,camera:null}}
 export function mountMap({id,root,go,signal,search}){
   let record=dealRecord(id);if(!record){go('all');return}
+  let training=mapLearningState(id), learningCollapsed=false;
   let savedRecord=structuredClone(record);
   const history=historyFor(id);
   let insightKind='risk';
@@ -226,7 +228,7 @@ export function mountMap({id,root,go,signal,search}){
   function mount(){
     document.title=modes[mode]+' · '+record.deal.title+' — Cursor';
     const scenario=mode==='scenario';
-    root.innerHTML=`<main class="map-app">${sideNav(mode,id)}<div class="map-work"><header id="tools">${toolBar(mode,v)}</header><div class="board-heading"><div><div class="deal-context">${esc(record.deal.company)}<span>/</span>${esc(record.deal.title)}</div><h1>${modes[mode]}</h1></div><div id="board-actions"></div>${!scenario?button('Участник',{action:'add-person',leading:'plus',variant:'secondary',cls:'add-person'}):''}</div>${scenario?`<div class="simulation"><label for="scenario">Сценарий</label><select id="scenario"><option value="">Свой сценарий</option>${Object.entries(scenarios).map(([k,[s]])=>'<option value="'+k+'" '+(v.scenario===k?'selected':'')+'>'+s+'</option>').join('')}</select><div id="design-tools" class="design-tools" role="group" aria-label="Сценарии What if"></div></div>`:''}<div class="map-content"><div id="surface" tabindex="0" role="region" aria-label="Доска участников. Стрелки перемещают карту, плюс и минус меняют масштаб."><div id="world"></div><div id="empty-map"></div></div><div id="board-assistant"></div><div id="camera-tools"></div><aside id="inspector" aria-label="Карточка участника" hidden></aside><div id="edge-preview" role="tooltip" hidden></div><div id="map-pop"></div></div>${scenario?'<div class="scenario-result" role="status"></div>':''}</div></main>`;
+    root.innerHTML=`<main class="map-app">${sideNav(mode,id)}<div class="map-work"><header id="tools">${toolBar(mode,v)}</header><div class="board-heading"><div><div class="deal-context">${esc(record.deal.company)}<span>/</span>${esc(record.deal.title)}</div><h1>${modes[mode]}</h1></div><div id="board-actions"></div>${!scenario?button('Участник',{action:'add-person',leading:'plus',variant:'secondary',cls:'add-person'}):''}</div><section id="map-learning" aria-label="Подсказки обучения" hidden></section>${scenario?`<div class="simulation"><label for="scenario">Сценарий</label><select id="scenario"><option value="">Свой сценарий</option>${Object.entries(scenarios).map(([k,[s]])=>'<option value="'+k+'" '+(v.scenario===k?'selected':'')+'>'+s+'</option>').join('')}</select><div id="design-tools" class="design-tools" role="group" aria-label="Сценарии What if"></div></div>`:''}<div class="map-content"><div id="surface" tabindex="0" role="region" aria-label="Доска участников. Стрелки перемещают карту, плюс и минус меняют масштаб."><div id="world"></div><div id="empty-map"></div></div><div id="board-assistant"></div><div id="camera-tools"></div><aside id="inspector" aria-label="Карточка участника" hidden></aside><div id="edge-preview" role="tooltip" hidden></div><div id="map-pop"></div></div>${scenario?'<div class="scenario-result" role="status"></div>':''}</div></main>`;
     if(v.selected||chatOpen){$('.map-content').classList.add('with-panel');$('#inspector').hidden=false}
     refresh();
     observer?.disconnect();
@@ -302,7 +304,7 @@ export function mountMap({id,root,go,signal,search}){
     transform();
   }
   function drawInspector(){
-    const panel=$('#inspector'),p=graph.people.find(x=>x.id===v.selected);
+    const panel=$('#inspector'),p=training&&edgeEditing?null:graph.people.find(x=>x.id===v.selected);
     const chat=mode==='scenario'&&v.assistantEnabled&&chatOpen;
     panel.hidden=!p&&!chat;$('.map-content').classList.toggle('with-panel',!panel.hidden);
     if(chat){panel.setAttribute('aria-label','Чат помощника');panel.innerHTML=chatHTML(advice,branchFor(v),p,insightKind);$('#proposal-input').value=drafts.get(draftKey())||'';$('#chat-form button[type="submit"]').disabled=branchFor(v).messages.some(m=>m.ai&&m.status==='pending');paintFinding();return}
@@ -315,7 +317,11 @@ export function mountMap({id,root,go,signal,search}){
       panel.innerHTML=inspector(p,mode,v,available,ghostReason(p),changes+risks);highlightPanel(panel,terms(v.query));
     }else panel.innerHTML='';
   }
+  function drawLearning(){
+    drawMapLearning($('#map-learning'),{training,record,mode,edgeEditing,edgeStart,pop,collapsed:learningCollapsed});
+  }
   function drawControls(){
+    drawLearning();
     if(mode==='scenario'){
       const status=activeDesign?'<b class="restored-name">'+esc(activeDesign.name)+'</b>':'';
       const changes=differences.length?'<button type="button" class="design-alert" data-map="design-diff">Изменения в сделке · '+differences.length+'</button>':'';
@@ -634,6 +640,17 @@ export function mountMap({id,root,go,signal,search}){
       insightKind='hypothesis';resetFinding();drawInspector();
       const row=[...root.querySelectorAll('#scenario-findings [data-focus-finding]')].find(el=>el.dataset.focusFinding===b.dataset.chatResult);
       row?.scrollIntoView?.({block:'nearest'});row?.focus();return;
+    }
+    if(b.dataset.mapLearning && training){
+      const action=b.dataset.mapLearning;
+      if(action==='toggle')learningCollapsed=!learningCollapsed;
+      else {
+        const previous=training;
+        training=nextMapLearning(training,record,action==='skip');
+        if(!training)notify('Обучение завершено. Карта сохранена.');
+        if(previous!==training){edgeEditing=false;edgeStart=null;v.selected=null;pop='';refresh();save();$('#map-learning [data-map-learning=toggle]')?.focus();return}
+      }
+      drawLearning();return;
     }
     if(b.dataset.jump){selectMode(b.dataset.jump,v.selected);return}
     if(b.dataset.hit!==undefined){openHit(hits[Number(b.dataset.hit)]);return}

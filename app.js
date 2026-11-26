@@ -1,3 +1,5 @@
+import {mountLearningBuilder} from './learning-builder.js';
+import {mountLearning} from './learning.js';
 import {icon,brand,eyes,button,crmButton,searchField,dealRow} from './components.js';
 import {marked,searchHits,terms} from './map-search.js';
 import {mountMap} from './map.js';
@@ -38,7 +40,7 @@ async function login(){
   session(true);go(destination);
 }
 function header(){
-  return '<header class="appbar"><div class="bar-inner">'+brand('bar-logo')+'<button class="logout" type="button" data-action="logout" aria-label="Выйти из демоверсии">'+icon('exit',18)+'<span>Выйти</span></button></div></header>';
+  return '<header class="appbar"><div class="bar-inner">'+brand('bar-logo')+'<button class="logout" type="button" data-action="logout" aria-label="Выйти из демоверсии">'+icon('exit',18)+'<span>Выйти</span></button><a class="learn-header-link" href="#learn">Обучение</a></div></header>';
 }
 function empty(foundNone=false){
   return '<div class="empty">'+(foundNone?'<span class="empty-search">'+icon('search',32)+'</span>':eyes())+'<strong>'+(foundNone?'Сделки не найдены':'У вас пока нет недавних карт')+'</strong><p>'+(foundNone?'Попробуйте другое название, имя участника или роль.':'Откройте сделку из общего списка — она появится здесь.')+'</p></div>'
@@ -89,7 +91,7 @@ function render(){
   if(hash==='preview-deals')session(true);
   if(hash==='login')session(false);
   const [route,id]=hash.split('/');
-  const routes=['all','new','review','import','map','settings'];
+  const routes=['all','new','review','import','map','settings','learn','learn-review'];
   if(!signedIn)destination=routes.includes(route)?hash:'deals';
   current=!signedIn?'login':routes.includes(route)?route:'deals';
   query='';
@@ -100,6 +102,8 @@ function render(){
   else if(['new','review','import'].includes(current))mountCreation(ctx);
   else if(current==='map'){if(dealRecord(id))opened(id);mountMap(ctx)}
   else if(current==='settings')mountSettings(ctx);
+  else if(current==='learn')mountLearningBuilder(ctx);
+  else if(current==='learn-review')mountLearning(ctx);
   else dealsPage();
   window.scrollTo(0,0);
 }
