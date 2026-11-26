@@ -61,7 +61,8 @@ function entries(p,mode){
   }else{
     entry('role','Роль Miller–Heiman',p.task,p.role,p.role&&roleName(p),p.stage,p.decision?'ЛПР':'');
     entry('relations','Отношения',p.attitude,p.contact,p.primary?'Основной контакт КРОК':'',states[p.state]);
-    entry('opinions','Мнения участников',p.opinions.flatMap(o=>[o.label,...o.authors]));
+    entry('opinions','Мнения участников',(p.opinions||[]).flatMap(o=>[o.label,...o.authors]),(p.managerOpinions||[]).flatMap(o=>[o.category,o.authorName,o.comment]));
+    for(const review of p.discAssessments||[])entry('disc','DISC',review.authorName,...Object.entries(review.scores).map(([k,v])=>k+' '+v));
     if(p.disc)entry('disc','DISC',...Object.entries(p.disc).map(([k,v])=>k+' '+v));
     entry('goals','Индивидуальные цели',p.goals,p.goalHint);entry('preferences','Предпочтения',p.preferences,p.preferenceHint);
     entry('agreements','О чём договорились',agreementFields);entry('risks','Риски',p.risks);

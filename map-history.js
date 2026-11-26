@@ -17,7 +17,13 @@ function mergeRows(rows,patch,keyOf,reverse){
     const updated={...out[i]};
     for(const key of new Set([...Object.keys(from),...Object.keys(to)])){
       if(same(from[key],to[key]))continue;
-      if(to[key]===undefined)delete updated[key];
+      if(key==='discAssessments'||key==='managerOpinions'){
+        const baseline=from[key]||[],next=to[key]||[];
+        const byId=row=>row.id;
+        const edits=changes(baseline,next,byId);
+        const rows=mergeRows(updated[key]||[],edits,byId,false);
+        if(rows.length||to[key])updated[key]=rows;else delete updated[key];
+      }else if(to[key]===undefined)delete updated[key];
       else if(Array.isArray(from[key])&&Array.isArray(to[key])&&Array.isArray(updated[key])&&!same(updated[key],from[key])){
         const removals=[...from[key]], additions=[];
         for(const value of to[key]){const index=removals.findIndex(old=>same(old,value));if(index<0)additions.push(clone(value));else removals.splice(index,1)}

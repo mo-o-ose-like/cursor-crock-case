@@ -1,3 +1,4 @@
+import {discSection,opinionSection} from './observations.js';
 import {esc,icon,button} from './components.js';
 import {field,area,select,submit,pair,modal,states,edgeKinds} from './fields.js';
 import {stages} from './sample-network.js';
@@ -54,17 +55,6 @@ function notes(p,key,hintKey,suggestion,editable){
   const values=p[key];
   return `<div class="note-block"><strong>${key==='goals'?'Заметки менеджера':'Заметки о взаимодействии'}</strong>${values.length?'<ul>'+values.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'<p>Заметок пока нет.</p>'}${editable?act(key,'Добавить заметку'):''}</div>${p[hintKey]?`<div class="suggestion"><strong>${icon('spark',15)} ${suggestion}</strong><small>Демо · требует проверки</small><p>${esc(p[hintKey])}</p>${editable?act(hintKey+'-accept','Подтвердить','check')+act(hintKey+'-reject','Отклонить','close'):''}</div>`:''}`;
 }
-function radar(d){
-  if(!d)return '<p>Подтверждённых результатов DISC пока нет.</p>';
-  const cx=85,cy=72,size=47;
-  const points=values=>values.map((v,i)=>{const angle=i*Math.PI/2-Math.PI/2;return (cx+Math.cos(angle)*size*v/100)+','+(cy+Math.sin(angle)*size*v/100)}).join(' ');
-  return `<figure class="disc-chart"><svg viewBox="0 0 170 146" role="img" aria-label="DISC: D ${d.D}, I ${d.I}, S ${d.S}, C ${d.C}">${[25,50,75,100].map(v=>'<polygon points="'+points([v,v,v,v])+'" fill="none" stroke="#d2dfe7"/>').join('')}<path d="M85 25v94M38 72h94" stroke="#d2dfe7"/><polygon points="${points([d.D,d.I,d.S,d.C])}" fill="#45759442" stroke="#457594" stroke-width="2"/>${[['D',85,17],['I',145,76],['S',85,137],['C',20,76]].map(([k,x,y])=>'<text x="'+x+'" y="'+y+'" text-anchor="middle">'+k+' '+d[k]+'</text>').join('')}</svg><figcaption>Подтверждённый профиль · демоданные</figcaption></figure>`;
-}
-function opinions(p){
-  if(!p.opinions.length)return '<p>Оценок участников пока нет.</p>';
-  const max=Math.max(1,...p.opinions.map(o=>o.authors.length));
-  return p.opinions.map(o=>`<details class="vote"><summary><span>${esc(o.label)}</span><i><b style="width:${o.authors.length/max*100}%"></b></i><em>${o.authors.length}</em></summary><p>${esc(o.authors.join(', '))}</p></details>`).join('');
-}
 export function inspector(p,mode,view,available=Object.keys(modes),ghost="",changes=""){
   const baseline=mode==='scenario'&&view.assistantEnabled&&view.comparison==='before';
   const editable=mode!=='scenario';const expanded=view.sections?.[p.id]??[];
@@ -75,7 +65,7 @@ export function inspector(p,mode,view,available=Object.keys(modes),ghost="",chan
   if(mode==='org')body=section('formal','target','Формальная зона ответственности','<p>'+esc(p.formal||'Зона ответственности пока не определена.')+'</p>')+factList(pair('Подразделение',p.dept),pair('Уровень иерархии',p.level));
   else if(mode==='influence')body=section('relations','handshake','Наши отношения',relations)+section('agreements','calendar','О чём договорились',agreements(p,true))+section('contact','user','Текущий статус взаимодействия',factList(pair('Статус',states[p.state]),pair('Степень влияния',p.influence),pair('Канал коммуникации',p.primary?'Основной контакт КРОК':p.contact)))+section('stage','flag','Участие в закупке',factList(pair('Этап',p.stage),pair('В закупке',p.task)));
   else if(mode==='scenario')body=(baseline?relations+'<button type="button" class="text-act" data-map="after">Перейти к действиям в сценарии</button>':scenarioPanel(p))+section('agreements','calendar','О чём договорились',agreements(p,false));
-  else body=section('role','briefcase','Роль Miller–Heiman',factList(pair('Должность',p.title),pair('Роль',roleName(p)),p.role?pair('Статус роли',p.roleStatus==='confirmed'?'Подтверждена':'Предполагаемая роль'):'',pair('Что проверяет или согласовывает',p.task||'Задача в закупке пока не уточнена'),pair('Этап',p.stage),p.decision?pair('Полномочия','ЛПР'):''))+section('relations','handshake','Отношения',relations)+section('opinions','users','Мнения участников',opinions(p))+section('disc','chart','DISC',radar(p.disc))+section('goals','target','Индивидуальные цели',notes(p,'goals','goalHint','Предположение Cursor',true))+section('preferences','note','Предпочтения',notes(p,'preferences','preferenceHint','Рекомендация Cursor',true))+section('agreements','calendar','О чём договорились',agreements(p,true));
+  else body=section('role','briefcase','Роль Miller–Heiman',factList(pair('Должность',p.title),pair('Роль',roleName(p)),p.role?pair('Статус роли',p.roleStatus==='confirmed'?'Подтверждена':'Предполагаемая роль'):'',pair('Что проверяет или согласовывает',p.task||'Задача в закупке пока не уточнена'),pair('Этап',p.stage),p.decision?pair('Полномочия','ЛПР'):''))+section('relations','handshake','Отношения',relations)+section('opinions','users','Мнения участников',opinionSection(p))+section('disc','chart','DISC',discSection(p))+section('goals','target','Индивидуальные цели',notes(p,'goals','goalHint','Предположение Cursor',true))+section('preferences','note','Предпочтения',notes(p,'preferences','preferenceHint','Рекомендация Cursor',true))+section('agreements','calendar','О чём договорились',agreements(p,true));
   if(editable)body+=section('risks','warning','Риски',participantRisks(p,mode));
   const jumps='<section class="other-modes"><h3>Найти участника в другом режиме</h3><div>'+Object.entries(modes).filter(([key])=>key!==mode).map(([key,title])=>`<button type="button" data-jump="${key}" ${available.includes(key)?'':'disabled title="Участника нет в этом режиме"'}>${title}${available.includes(key)?'':'<small>Нет на карте</small>'}</button>`).join('')+'</div></section>';
   const telegram=telegramName.test(p.telegram || '')

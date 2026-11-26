@@ -1,3 +1,4 @@
+import {openObservation,applyObservation} from './observations.js';
 import {drawMapLearning, mapLearningState, nextMapLearning} from './learning-builder.js';
 import {caseForModel,inferProposal} from './local-model.js';
 import {askGroq} from './groq-chat.js';
@@ -480,6 +481,14 @@ export function mountMap({id,root,go,signal,search}){
     record=applyRecordDiff(dealRecord(id),patch);saveRecord(record);
     savedRecord=structuredClone(record);remember(history,{mode,label,patch});refresh();save();
   }
+  function saveObservation(change){
+    const latest=dealRecord(id);
+    const person=latest?.people.find(p=>p.id===change.personId);
+    const before=structuredClone(latest);
+    applyObservation(person,change);
+    savedRecord=before;record=latest;
+    updateRecord(change.label);
+  }
   function removePerson(){
     const person=graph.people.find(p=>p.id===v.selected);if(!person)return;
     const simulated=mode==='scenario';
@@ -493,7 +502,13 @@ export function mountMap({id,root,go,signal,search}){
   function edit(p,focusField){
     const dialog=editParticipant(record,p,mode,(person,edge)=>{
       const i=record.people.findIndex(x=>x.id===person.id);
-      if(i>=0)record.people[i]=person;else record.people.push(person);
+      if(i>=0){
+        // A profile form may remain open while another tab adds an observation.
+        for(const key of ['managerOpinions','discAssessments']){
+          if(record.people[i][key])person[key]=record.people[i][key];else delete person[key];
+        }
+        record.people[i]=person;
+      }else record.people.push(person);
       if(edge)record.edges.push(edge);
       v.selected=person.id;v.collapsed=(v.collapsed||[]).filter(n=>n!==person.dept);
       if(i<0){v.query='';v.filters={};v.camera=null}
@@ -696,6 +711,11 @@ export function mountMap({id,root,go,signal,search}){
     if(b.hasAttribute('data-collapse')){const k=b.dataset.collapse;v.collapsed=(v.collapsed||[]).includes(k)?v.collapsed.filter(x=>x!==k):[...(v.collapsed||[]),k];refresh();save();return}
     if(b.dataset.section){toggleSection(b);return}
     if(b.dataset.action==='add-person'){edit(null,b.dataset.gapNew);return}
+    if(mode==='process'&&b.dataset.observation){
+      const p=record.people.find(person=>person.id===v.selected);
+      if(p)openObservation(b.dataset.observation,b.dataset.entry,p,saveObservation);
+      return;
+    }
     const pa=b.dataset.panelAction;
     if(pa==='remove'){removePerson();return}
     if(pa){const p=record.people.find(x=>x.id===v.selected);if(!p)return;
