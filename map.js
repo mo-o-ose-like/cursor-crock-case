@@ -16,6 +16,7 @@ import {stages} from './sample-network.js';
 import {modes,scenarios,layout,risksFor,directInfluenceEdges} from './map-layout.js';
 import {attitudeTone} from './participant-status.js';
 import {avatar,chip,inspector,editParticipant,handlePanel,labelRole,roleName} from './person-panel.js';
+import {knowledgeGaps} from './knowledge-gaps.js';
 import {field,select,modal,notify,states,submit,valid} from './fields.js';
 
 const clamp=(n,min,max)=>Math.min(max,Math.max(min,n));
@@ -52,18 +53,6 @@ function card(n,mode,v,matching,tokens,neighbor,ghost,stale=false){
   }
   const phase=mode==='process'?({active:'В работе',finished:'Контакт пройден',planned:'Планируем контакт'})[p.state]:'';
   return `<button type="button" class="${classes}${stale?' stale-person':''}" style="${xy(n)}" data-node="${esc(p.id)}" aria-pressed="${selected}" title="${esc([ghost||[p.name,shortRole,p.proposalAction].filter(Boolean).join(' · '),stale?'Сведения изменились после сохранения':''].filter(Boolean).join(' · '))}"><span class="node-flags">${phase?'<span class="phase-flag">'+phase+'</span>':''}${badge?'<span class="node-flag" title="'+esc(badge)+'">'+mark(badge)+'</span>':''}</span><span class="node-main">${avatar(p)}<span class="node-copy"><strong title="${esc(p.name)}">${mark(p.name)}</strong><small title="${esc(shortRole)}">${mark(shortRole)}</small></span>${icon('chevron',13)}</span>${detail}</button>`;
-}
-function unknowns(r){
-  const entries=[];
-  if(!r.people.some(p=>p.decision))entries.push('Кто принимает окончательное решение?');
-  if(!r.people.some(p=>p.primary))entries.push('Кто основной контакт КРОК?');
-  if(!r.settings.budget)entries.push('Какой бюджет утверждён для сделки?');
-  for(const p of r.people){
-    if(!p.stage)entries.push(p.name+' — на каком этапе участвует?');
-    else if(p.state==='planned'&&p.contact!=='Контакт установлен')entries.push(p.name+' — когда запланирован первый контакт?');
-    else if(p.agreements.some(a=>!a.date))entries.push(p.name+' — на какую дату назначено согласование?');
-  }
-  return entries;
 }
 function freshMode(){return {query:'',filters:{},positions:{},sections:{},collapsed:[],selected:null,camera:null}}
 export function mountMap({id,root,go,signal,search}){
@@ -501,8 +490,8 @@ export function mountMap({id,root,go,signal,search}){
       else{record.people=record.people.filter(p=>p.id!==person.id);record.edges=record.edges.filter(e=>e.a!==person.id&&e.b!==person.id);updateRecord('Удаление участника')}
     });
   }
-  function edit(p){
-    editParticipant(record,p,mode,(person,edge)=>{
+  function edit(p,focusField){
+    const dialog=editParticipant(record,p,mode,(person,edge)=>{
       const i=record.people.findIndex(x=>x.id===person.id);
       if(i>=0)record.people[i]=person;else record.people.push(person);
       if(edge)record.edges.push(edge);
@@ -510,6 +499,7 @@ export function mountMap({id,root,go,signal,search}){
       if(i<0){v.query='';v.filters={};v.camera=null}
       updateRecord();reveal(person.id);save();notify('Участник сохранён');
     });
+    if(focusField)dialog.querySelector('form').elements.namedItem(focusField)?.focus();
   }
   function filterContent(){
     const f=v.filters||{},all=[['','Все']];
@@ -520,6 +510,8 @@ export function mountMap({id,root,go,signal,search}){
     return `<form class="pop-form" id="map-filters">${fields}<div class="pop-footer"><button type="button" class="text-act" data-map="clear-filters">Сбросить</button>${submit('Применить')}</div></form>`;
   }
   function drawPopover(){
+    const trigger=$('[data-map="unknown"]');
+    if(trigger){trigger.setAttribute('aria-expanded',String(pop==='unknown'));trigger.removeAttribute('aria-pressed')}
     if(pop)clearPreview();
     const el=$('#map-pop');el.innerHTML='';el.style.left='';el.style.top='';el.style.maxWidth='';el.style.maxHeight='';if(!pop)return;
     if(pop==='edge'){
@@ -539,8 +531,44 @@ export function mountMap({id,root,go,signal,search}){
       el.innerHTML='<section class="map-popover results-pop" aria-label="Результаты поиска"><div class="pop-head"><h2>Результаты поиска</h2>'+iconControl('close-pop','close','Закрыть результаты')+'</div>'+resultList(hits,v.query,mode,modes)+'</section>';return;
     }
     const title=pop==='filters'?'Фильтры':'Чего не знаем';
-    const list=pop==='unknown'?unknowns(record):[];
-    el.innerHTML=`<div class="map-popover" role="region" aria-label="${title}"><div class="pop-head"><h2>${title}</h2>${iconControl('close-pop','close','Закрыть')}</div>${pop==='filters'?filterContent():list.length?'<ul class="unknown-list">'+list.map(t=>'<li>'+esc(t)+'</li>').join('')+'</ul>':'<p>По текущим данным открытых вопросов нет.</p>'}</div>`;
+    el.innerHTML=`<div class="map-popover" role="region" aria-label="${title}"><div class="pop-head"><h2>${title}</h2>${iconControl('close-pop','close','Закрыть')}</div>${pop==='filters'?filterContent():gapList()}</div>`;
+  }
+  function gapList(){
+    const {entries,deal}=knowledgeGaps(record);
+    if(!entries.length&&!deal.length)return '<p>Все ключевые сведения заполнены.</p>';
+    const rows=entries.map(g=>`<button type="button" data-gap-person="${esc(g.personId)}" data-gap-section="${g.section}" data-gap-field="${g.field||''}" data-gap-agreement="${g.index??''}"><strong>${esc(g.name)}</strong><span>${esc(g.question)}</span></button>`);
+    for(const gap of deal){
+      if(gap.field==='budget'){
+        rows.push('<button type="button" data-map="gap-budget"><strong>Сделка</strong><span>'+esc(gap.question)+'</span></button>');
+      }else{
+        const candidates=graph.people.map(p=>`<button type="button" data-gap-person="${esc(p.id)}" data-gap-section="${gap.field==='decision'?'role':'relations'}" data-gap-field="${gap.field}">${esc(p.name)}</button>`).join('');
+        rows.push('<details><summary>'+esc(gap.question)+'</summary>'+candidates+'<button type="button" data-action="add-person" data-gap-new="'+gap.field+'">Добавить участника</button></details>');
+      }
+    }
+    return '<div class="hit-list gap-list">'+rows.join('')+'</div>';
+  }
+  function openGap(row){
+    const {gapPerson:pid,gapSection:key,gapField:field,gapAgreement:index}=row.dataset;
+    if(!graph.people.some(p=>p.id===pid))return;
+    edgeEditing=false;edgeStart=null;
+    v.sections??={};
+    v.sections[pid]=[...new Set([...(v.sections[pid]||[]),key])];
+    pick(pid);
+    centerTargets([pid],[]);save();
+    const section=$('#inspector [data-section="'+key+'"]')?.closest('section');
+    if(!section)return;
+    let target=section.querySelector('.section-toggle');
+    if(index!==undefined&&index!==''){
+      target=section.querySelector('[data-agreement-index="'+index+'"] button')||target;
+    }else if(field){
+      const action=document.createElement('button');
+      action.type='button';action.className='text-act';action.dataset.gapEdit=field;
+      action.textContent=['decision','primary'].includes(field)?'Указать роль участника':'Заполнить поле';
+      section.querySelector('.section-inner').append(action);
+      target=action;
+    }
+    target.focus({preventScroll:true});
+    target.scrollIntoView({block:'nearest'});
   }
   function resetFilters(){v.query='';v.filters={};v.highlight=false;pop='';mount();save()}
   function changeZoom(key){if(key==='fit')fit();else zoom(key==='in'?1.2:1/1.2)}
@@ -652,6 +680,9 @@ export function mountMap({id,root,go,signal,search}){
       }
       drawLearning();return;
     }
+    if(b.hasAttribute('data-gap-person')){openGap(b);return}
+    if(b.dataset.gapEdit){edit(record.people.find(p=>p.id===v.selected),b.dataset.gapEdit);return}
+    if(b.dataset.map==='gap-budget'){go('settings/'+id+'/budget');return}
     if(b.dataset.jump){selectMode(b.dataset.jump,v.selected);return}
     if(b.dataset.hit!==undefined){openHit(hits[Number(b.dataset.hit)]);return}
     if(mode==='scenario'&&b.dataset.sim){applySimulation(b.dataset.sim);return}
@@ -664,7 +695,7 @@ export function mountMap({id,root,go,signal,search}){
     }
     if(b.hasAttribute('data-collapse')){const k=b.dataset.collapse;v.collapsed=(v.collapsed||[]).includes(k)?v.collapsed.filter(x=>x!==k):[...(v.collapsed||[]),k];refresh();save();return}
     if(b.dataset.section){toggleSection(b);return}
-    if(b.dataset.action==='add-person'){edit(null);return}
+    if(b.dataset.action==='add-person'){edit(null,b.dataset.gapNew);return}
     const pa=b.dataset.panelAction;
     if(pa==='remove'){removePerson();return}
     if(pa){const p=record.people.find(x=>x.id===v.selected);if(!p)return;

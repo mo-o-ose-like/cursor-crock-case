@@ -5,6 +5,7 @@ import {blankPerson} from './data.js';
 import {scenarioPanel} from './simulation.js';
 import {modes,automaticRisks} from './map-layout.js';
 
+import {missingValue} from './knowledge-gaps.js';
 import {statusBadge} from './participant-status.js';
 import {labelRole,roleName} from './participant-roles.js';
 export {labelRole,roleName};
@@ -44,8 +45,9 @@ function participantRisks(p,mode){
 }
 function agreements(p,editable){
   return (p.agreements.map((a,i)=>{
-    const when=a.date?new Intl.DateTimeFormat('ru-RU',{day:'numeric',month:'short',year:'numeric'}).format(new Date(a.date+'T12:00:00')):'Дата не назначена';
-    return `<article class="agreement-item" data-agreement-index="${i}" tabindex="-1"><div>${chip(a.status,a.status==='Согласовано'?'green':a.status==='Ожидает подтверждения'?'amber':'blue')} <small>${esc(when)}</small></div><strong>${esc(a.title)}</strong><p>${esc(a.detail)}</p></article>`;
+    const dated=!missingValue(a.date);
+    const when=dated?new Intl.DateTimeFormat('ru-RU',{day:'numeric',month:'short',year:'numeric'}).format(new Date(a.date+'T12:00:00')):'Дата не назначена';
+    return `<article class="agreement-item" data-agreement-index="${i}" tabindex="-1"><div>${chip(a.status,a.status==='Согласовано'?'green':a.status==='Ожидает подтверждения'?'amber':'blue')} <small>${esc(when)}</small>${editable&&!dated?act('agreement-date-'+i,'Указать дату','calendar'):''}</div><strong>${esc(a.title)}</strong><p>${esc(a.detail)}</p></article>`;
   }).join('')||'<p>Договорённостей пока нет.</p>')+(editable?act('agreement','Добавить договорённость'):'');
 }
 function notes(p,key,hintKey,suggestion,editable){
@@ -68,7 +70,7 @@ export function inspector(p,mode,view,available=Object.keys(modes),ghost="",chan
   const editable=mode!=='scenario';const expanded=view.sections?.[p.id]??[];
   const section=(key,glyph,title,content)=>`<section class="inspect-section"><button type="button" class="section-toggle" data-section="${key}" aria-expanded="${expanded.includes(key)}">${mode==='influence'?'':icon(glyph,17)}<span>${title}</span>${icon('down',15)}</button>${expanded.includes(key)?'<div class="section-inner">'+content+'</div>':''}</section>`;
   const status=(label,value,style)=>'<div class="fact"><dt>'+esc(label)+'</dt><dd>'+statusBadge(value,style)+'</dd></div>';
-  const relations=factList(status('Отношение к сделке',p.attitude,'attitude'),status('Контакт с КРОК',p.contact,'contact'),pair('Участие',states[p.state]),p.primary?pair('Канал','Основной контакт КРОК'):'');
+  const relations=factList(status('Отношение к сделке',p.attitude,'attitude'),status('Контакт с КРОК',p.contact,'contact'),pair('Участие',states[p.state]),p.state==='planned'||p.firstContactDate?pair('Дата первого контакта',p.firstContactDate):'',p.primary?pair('Канал','Основной контакт КРОК'):'');
   let body='';
   if(mode==='org')body=section('formal','target','Формальная зона ответственности','<p>'+esc(p.formal||'Зона ответственности пока не определена.')+'</p>')+factList(pair('Подразделение',p.dept),pair('Уровень иерархии',p.level));
   else if(mode==='influence')body=section('relations','handshake','Наши отношения',relations)+section('agreements','calendar','О чём договорились',agreements(p,true))+section('contact','user','Текущий статус взаимодействия',factList(pair('Статус',states[p.state]),pair('Степень влияния',p.influence),pair('Канал коммуникации',p.primary?'Основной контакт КРОК':p.contact)))+section('stage','flag','Участие в закупке',factList(pair('Этап',p.stage),pair('В закупке',p.task)));
@@ -100,6 +102,7 @@ export function editParticipant(record,existing,kind,onSave){
     +(p.photo?check('removePhoto','Удалить текущее фото',false):'')
     +'<p class="error" role="status" data-photo-status></p>';
   if(!orgOnly)form+=area('Зона ответственности в закупке','task',p.task)+choice('Этап закупки','stage',nullable(stages))+choice('Участие в сделке','state',Object.entries(states))+choice('Роль Miller–Heiman','role',nullable([['Технический эксперт','T · Технический согласующий'],['Экономический покупатель','E · Экономический покупатель'],['Пользователь','U · Представитель пользователей'],['Наставник','C · Наставник']]))+select('Статус роли','roleStatus',[['assumed','Предполагаемая роль'],['confirmed','Подтверждена'],...(p.roleStatus&&!['assumed','confirmed'].includes(p.roleStatus)?[[p.roleStatus,p.roleStatus]]:[])],p.roleStatus||'assumed')+choice('Отношение к сделке','attitude',['Неизвестно','Поддерживает','Нейтрально','Сомневается','Против','Возражает'])+choice('Контакт с КРОК','contact',['Нет данных','Контакт установлен','Контакт планируется','Нет контакта'])+choice('Степень влияния','influence',['Неизвестно','Высокое','Среднее','Низкое'])+check('decision','Лицо, принимающее решение',p.decision)+check('primary','Основной контакт КРОК',p.primary);
+  if(!orgOnly)form+=field('Дата первого контакта','firstContactDate',p.firstContactDate,{type:'date'});
   if(!existing&&others.length)form+=select('Связать с участником','parent',[['','Без связи'],...others.map(x=>[x.id,x.name])])+select('Тип связи от выбранного участника','kind',Object.entries(edgeKinds),kind==='scenario'?'process':kind);
   form+=area('Риски участника (по одному на строку)','risks',(p.risks??[]).join('\n'));
   let photo='';
@@ -153,6 +156,7 @@ export function editParticipant(record,existing,kind,onSave){
     status.textContent='';
     save.disabled=false;
   });
+  return dialog;
 }
 export function handlePanel(action,p,commit){
   if(action==='add-risk'){
@@ -162,6 +166,13 @@ export function handlePanel(action,p,commit){
     });
   }
   else if(action==='goals'||action==='preferences')modal('Добавить заметку','<form class="edit-form">'+field('Заметка','note','',{required:true})+submit('Добавить')+'</form>',({note})=>{p[action].push(note.trim());commit()});
+  else if(/^agreement-date-\d+$/.test(action)){
+    const index=Number(action.slice('agreement-date-'.length));
+    const agreement=p.agreements[index];if(!agreement)return;
+    modal('Дата договорённости · '+agreement.title,'<form class="edit-form">'+field('Дата','date',agreement.date,{type:'date',required:true})+submit('Сохранить')+'</form>',({date})=>{
+      agreement.date=date;commit('Дата договорённости');
+    });
+  }
   else if(action==='agreement')modal('Новая договорённость','<form class="edit-form">'+field('О чём договорились','title','',{required:true})+field('Дата','date','',{type:'date'})+select('Статус','status',['Запланировано','Согласовано','Ожидает подтверждения'])+area('Подробности','detail')+submit('Добавить')+'</form>',v=>{p.agreements.push({...v,title:v.title.trim()});commit()});
   else if(/^(goalHint|preferenceHint)-(accept|reject)$/.test(action)){
     const [key,decision]=action.split('-');if(decision==='accept')p[key==='goalHint'?'goals':'preferences'].push(p[key]);p[key]='';commit();
