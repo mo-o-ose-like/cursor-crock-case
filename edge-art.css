@@ -43,6 +43,7 @@
   stroke-width:16px;
   vector-effect:non-scaling-stroke;
 }
+.edge-internal-influence .connection-hit {stroke-width:7px;vector-effect:none}
 .connection-line,.connection-tip {
   stroke:var(--edge-color);
   stroke-width:var(--edge-width);
