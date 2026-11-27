@@ -1,15 +1,19 @@
 import {mountLearningBuilder} from './learning-builder.js';
 import {mountLearning} from './learning.js';
-import {icon,brand,eyes,button,crmButton,searchField,dealRow} from './components.js';
+import {icon,brand,eyes,button,crmButton,searchField,dealRow,esc} from './components.js';
+import {findParticipants} from './deal-search.js';
 import {marked,searchHits,terms} from './map-search.js';
 import {mountMap} from './map.js';
 import {mountCreation,startDraft} from './creation.js';
 import {mountSettings} from './settings.js';
-import {notify} from './fields.js';
+import {notify,modal} from './fields.js';
+import {deleteDeal,restoreDeal} from './data.js';
 import {allDeals,dealRecord,matches,recent,opened} from './data.js';
 
 const app=document.querySelector('#app');
 let query='';
+let searchScope='all';
+let participantResults=[];
 let current='';
 let pendingSearch=null;
 const destinations=new Map();
@@ -49,17 +53,27 @@ function resultBody(){
   const searching=Boolean(query.trim());
   const all=current==='all';
   const catalog=allDeals();
-  const data=searching?matches(query):all?catalog:recent().map(r=>catalog.find(d=>d.id===r.id));
-  document.querySelector('#list-title').textContent=searching?'Результаты поиска':all?'Список сделок':'Недавние карты';
-  document.querySelector('#count').textContent=data.length?String(data.length):'';
-  document.querySelector('#found').textContent=searching?'Найдено сделок: '+data.length:'';
+  const data=searching?matches(query):all?catalog:recent().map(r=>catalog.find(d=>d.id===r.id)).filter(Boolean);
+  participantResults=searching?findParticipants(catalog.map(d=>dealRecord(d.id)),query):[];
+  const showDeals=searchScope!=='people',showPeople=searchScope!=='deals';
+  const total=(showDeals?data.length:0)+(showPeople?participantResults.length:0);
+  document.querySelector('#list-title').textContent=searching?'Результаты поиска':searchScope==='people'?'Поиск участников':all?'Список сделок':'Недавние карты';
+  document.querySelector('#count').textContent=searching||showDeals?String(total):'';
+  document.querySelector('#found').textContent=searching?'Найдено сделок: '+data.length+'. Участников в сделках: '+participantResults.length+'.':'';
+  document.querySelectorAll('[data-search-scope]').forEach(el=>{
+    const scope=el.dataset.searchScope;
+    el.setAttribute('aria-pressed',String(scope===searchScope));
+    const count=scope==='people'?participantResults.length:scope==='deals'?data.length:data.length+participantResults.length;
+    el.querySelector('.scope-count').textContent=searching?String(count):'';
+  });
+  document.querySelector('.desk-footer')?.toggleAttribute('hidden',searching||!showDeals);
   const list=document.querySelector('#deal-list');
-  list.classList.toggle('has-rows',data.length>0);
+  list.classList.toggle('has-rows',total>0&&(searching||showDeals));
   destinations.clear();
   const tokens=terms(query);
   const mark=text=>marked(text,tokens);
   const settingsLabels={product:'Что продаём',stage:'Стадия сделки',budget:'Бюджет',plan:'План действий',constraints:'Риски и ограничения',goal:'Текущая цель'};
-  list.innerHTML=data.length?data.map(d=>{
+  const dealRows=data.map(d=>{
     if(!searching)return dealRow(d);
     const covers=s=>tokens.every(w=>String(s??'').toLocaleLowerCase('ru').replaceAll('ё','е').includes(w));
     if(covers(d.title+' '+d.company))return dealRow(d,mark);
@@ -74,14 +88,24 @@ function resultBody(){
       else context=[...(d.tags||[]),d.agreement,d.notes,...(record.sources||[])].find(x=>x&&covers(x))||'';
     }
     return dealRow(d,mark,context?'<small class="deal-hit">'+mark(context)+'</small>':'');
-  }).join(''):empty(searching);
+  }).join('');
+  const personRows=participantResults.map(({person:p,deal:d},i)=>{
+    const initials=p.name.trim().split(/\s+/).slice(0,2).map(s=>s[0]).join('');
+    return '<button type="button" class="participant-result" data-person-result="'+i+'"><span class="person-avatar" aria-hidden="true">'+esc(initials)+'</span><span class="person-result-body"><strong>'+mark(p.name)+'</strong><span class="person-position">'+mark([p.title,p.dept].filter(Boolean).join(' · '))+'</span><span class="person-deal">'+icon('briefcase',16)+'<span>'+mark(d.title)+'<span class="person-company">'+mark(d.company)+'</span></span></span></span><span class="person-result-action">Открыть карточку</span></button>';
+  }).join('');
+  const group=(label,count,rows)=>'<section class="search-group" aria-label="'+label+'"><h3>'+label+'<span>'+count+'</span></h3>'+rows+'</section>';
+  if(searching){
+    list.innerHTML=total?(showPeople&&personRows?group('Участники',participantResults.length,personRows):'')+(showDeals&&dealRows?group('Сделки',data.length,dealRows):''):'<div class="empty"><span class="empty-search">'+icon('search',32)+'</span><strong>'+(searchScope==='people'?'Участники не найдены':searchScope==='deals'?'Сделки не найдены':'Ничего не найдено')+'</strong><p>Попробуйте другое имя, должность, отдел или название сделки.</p></div>';
+  }else{
+    list.innerHTML=showDeals?(dealRows||empty()):'<div class="empty"><span class="empty-search">'+icon('users',32)+'</span><strong>Найдите участника сделки</strong><p>Введите имя, должность или отдел.<br>Покажем человека и сделку, в которой он участвует.</p></div>';
+  }
   document.querySelector('.clear').hidden=!query;
 }
 function dealsPage(){
   const all=current==='all';
   const title=all?'Все сделки':'Ваши сделки';
   document.title=title+' — Cursor';
-  app.innerHTML=header()+'<main class="desk"><div class="desk-top">'+(all?'<button class="back" data-action="recent">'+icon('back',16)+'Ваши сделки</button>':'')+'<div class="desk-title"><h1>'+title+'</h1>'+button('Добавить сделку',{leading:'plus',action:'new'})+'</div>'+searchField(query)+'</div><section aria-labelledby="list-title" class="list-panel"><div class="list-heading"><h2 id="list-title"></h2><span id="count"></span></div><span class="sr-only" id="found" role="status" aria-live="polite"></span><div id="deal-list" class="deal-list"></div></section>'+(!all?'<div class="desk-footer">'+button('Посмотреть все сделки',{variant:'secondary',action:'all',trailing:'arrow'})+'</div>':'')+'</main>';
+  app.innerHTML=header()+'<main class="desk"><div class="desk-top">'+(all?'<button class="back" data-action="recent">'+icon('back',16)+'Ваши сделки</button>':'')+'<div class="desk-title"><h1>'+title+'</h1>'+button('Добавить сделку',{leading:'plus',action:'new'})+'</div>'+searchField(query)+'<p id="search-hint" class="search-hint">Ищите по всем сделкам: по названию, имени, должности или отделу</p><div class="search-scopes" role="group" aria-label="Искать среди">'+[['all','Все'],['deals','Сделки'],['people','Участники']].map(([value,label])=>'<button type="button" data-search-scope="'+value+'" aria-pressed="'+(searchScope===value)+'">'+label+'<span class="scope-count"></span></button>').join('')+'</div></div><section aria-labelledby="list-title" class="list-panel"><div class="list-heading"><h2 id="list-title"></h2><span id="count"></span></div><span class="sr-only" id="found" role="status" aria-live="polite"></span><div id="deal-list" class="deal-list"></div></section>'+(!all?'<div class="desk-footer">'+button('Посмотреть все сделки',{variant:'secondary',action:'all'})+'</div>':'')+'</main>';
   resultBody();
 }
 function render(){
@@ -95,6 +119,7 @@ function render(){
   if(!signedIn)destination=routes.includes(route)?hash:'deals';
   current=!signedIn?'login':routes.includes(route)?route:'deals';
   query='';
+  searchScope='all';
   document.querySelector('dialog[open]')?.remove();
   const ctx={route:current,id,root:app,header,go,signal:lifecycle.signal,search:pendingSearch?.id===id?pendingSearch:null};
   pendingSearch=null;
@@ -109,6 +134,30 @@ function render(){
 }
 document.addEventListener('input',e=>{if(e.target.id==='query'){query=e.target.value;resultBody()}});
 document.addEventListener('click',e=>{
+  const remove=e.target.closest('[data-delete-deal]');
+  if(remove){
+    const id=remove.dataset.deleteDeal,deal=allDeals().find(d=>d.id===id);if(!deal)return;
+    modal('Удалить сделку?', '<p>«'+esc(deal.title)+'» будет удалена из списка сделок.</p><form><div class="delete-deal-actions"><button type="button" class="btn secondary" data-close>Отмена</button><button type="submit" class="btn primary">Удалить</button></div></form>',()=>{
+      deleteDeal(id);resultBody();
+      document.querySelector('.delete-deal-notice')?.remove();
+      const notice=document.createElement('div');notice.className='delete-deal-notice';notice.setAttribute('role','status');
+      notice.innerHTML='<span>Сделка удалена</span><button type="button">Восстановить</button>';
+      notice.querySelector('button').onclick=()=>{restoreDeal(id);notice.remove();resultBody()};
+      document.querySelector('.desk-top').after(notice);
+    });return;
+  }
+  const scope=e.target.closest('[data-search-scope]');
+  if(scope){searchScope=scope.dataset.searchScope;resultBody();return}
+  const personResult=e.target.closest('[data-person-result]');
+  if(personResult){
+    const result=participantResults[Number(personResult.dataset.personResult)];
+    if(result){
+      const {deal,person}=result;
+      pendingSearch={id:deal.id,query:'',hit:{pid:person.id,mode:'org',key:''}};
+      go('map/'+deal.id);
+    }
+    return;
+  }
   const deal=e.target.closest('[data-deal]');
   if(deal && dealRecord(deal.dataset.deal)){
     const id=deal.dataset.deal,target=destinations.get(id);

@@ -72,6 +72,32 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .deal-row:hover{background:var(--wash);border-color:var(--field-line)}.deal-row:active,.deal-row[aria-pressed=true]{background:#edf3f6;border-color:var(--brand)}
 .row-text{display:flex;flex-direction:column;gap:2px;min-width:0}.row-text strong{font-size:17px;letter-spacing:-.02em;line-height:1.3}.row-text small{font-size:13px;color:var(--muted)}
 .row-go{display:grid;place-items:center;color:var(--brand)}
+.deal-row-wrap{position:relative;flex:none}.deal-row-wrap .deal-row{padding-right:64px}
+.delete-deal{position:absolute;right:14px;top:50%;transform:translateY(-50%);width:36px;height:36px;border:0;border-radius:9px;background:transparent;color:var(--muted);display:grid;place-items:center}
+.delete-deal:hover{color:#a32c32;background:#fff0f0}.delete-deal-actions{display:flex;gap:10px}.delete-deal-actions .btn{flex:1}
+.delete-deal-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;padding:12px 16px;border-radius:12px;background:var(--wash);font-size:14px}
+.delete-deal-notice button{border:0;background:transparent;color:var(--nav);font-weight:600;padding:6px}
+.search-hint{margin:10px 18px 0;color:var(--muted);font-size:14px;line-height:1.5}
+.search-scopes{display:flex;gap:6px;flex-wrap:wrap;margin-top:20px}
+.search-scopes button{display:flex;align-items:center;gap:8px;min-height:42px;padding:8px 17px;border:1px solid var(--line);border-radius:var(--pill);background:white;font-size:14px;font-weight:600;color:var(--muted)}
+.search-scopes button:hover{border-color:var(--brand);color:var(--nav)}
+.search-scopes button[aria-pressed=true]{background:var(--nav);border-color:var(--nav);color:white}
+.scope-count:empty{display:none}.scope-count{font-size:13px;opacity:.8;font-variant-numeric:tabular-nums}
+.search-group{display:flex;flex-direction:column;gap:8px;flex:none}.search-group+.search-group{margin-top:18px}
+.search-group h3{display:flex;align-items:center;gap:10px;font:600 15px/1.5 var(--body);color:var(--muted);padding:0 4px 4px}
+.search-group h3 span{font-size:13px;font-weight:400}
+.participant-result{display:flex;align-items:flex-start;gap:14px;width:100%;padding:18px;border:1px solid var(--line);border-radius:var(--card);background:white;text-align:left;transition:background .14s,border-color .14s}
+.participant-result:hover{background:var(--wash);border-color:var(--field-line)}
+.participant-result:active{background:#edf3f6;border-color:var(--brand)}
+.person-avatar{display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:50%;background:#e7f0f5;color:var(--nav);font-size:14px;font-weight:600}
+.person-result-body{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;overflow-wrap:anywhere}
+.person-result-body strong{font-size:17px;font-weight:600;line-height:1.4}
+.person-position{color:var(--muted);font-size:14px}
+.person-deal{display:flex;align-items:flex-start;gap:8px;margin-top:8px;color:var(--nav);font-size:14px;line-height:1.5}
+.person-deal>.icon{margin-top:3px}.person-company{display:block;color:var(--muted);margin-top:2px}
+.person-result-action{align-self:center;color:var(--brand);font-size:14px;font-weight:600;flex:none}
+.participant-result mark{background:#ffe6a0;color:inherit;border-radius:3px}
+@media(max-width:620px){.search-hint{margin-left:6px;margin-right:6px}.search-scopes{gap:5px;margin-top:16px}.search-scopes button{padding:8px 13px}.participant-result{padding:14px;gap:10px;flex-wrap:wrap}.person-avatar{width:34px;height:34px;font-size:12px}.person-result-action{width:100%;padding-left:44px;font-weight:400}.person-result-body strong{font-size:16px}}
 .modal{color:var(--ink);border:1px solid var(--line);border-radius:var(--panel);padding:0;width:min(460px,calc(100% - 32px));max-height:calc(100svh - 48px);box-shadow:var(--shadow)}
 .modal::backdrop{background:rgb(18 39 53 / .22)}
 .modal-inner{padding:32px;position:relative}.modal-close{position:absolute;top:16px;right:14px}.modal-caption{font-size:12px;color:var(--brand);gap:6px;font-weight:600;margin:2px 32px 16px 0}

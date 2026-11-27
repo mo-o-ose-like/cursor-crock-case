@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {allDeals,dealRecord,comparisonRecords,matches,saveRecord,saveView,getView,resetNorthernCase} from '../data.js';
+import {allDeals,deleteDeal,restoreDeal,dealRecord,comparisonRecords,matches,saveRecord,saveView,getView,resetNorthernCase} from '../data.js';
 import {northernDeal,northernArchives} from '../northern-case.js';
 import {comparison,comparisonZones,observations} from '../path-data.js';
 import {scenarioBoard} from '../scenario-board.js';
@@ -15,6 +15,10 @@ test('one shared entry, two independent archives, personal changes and targeted 
    assert.equal(allDeals().filter(d=>d.trainingFamily).length,1);
    const personal={deal:{id:'custom-123',title:'Кейс пользователя',company:northernDeal.company},settings:{},people:[],edges:[]};
    saveRecord(personal); const saved=JSON.stringify(personal);
+   deleteDeal(personal.deal.id);deleteDeal(id);
+   assert.equal(allDeals().some(d=>d.id===personal.deal.id),false);
+   assert.equal(allDeals().filter(d=>d.id===id).length,1);
+   restoreDeal(personal.deal.id);assert.ok(allDeals().some(d=>d.id===personal.deal.id));
    assert.equal(matches('модернизация защиты').at(0).id,id);
    const r=record();r.people[0].name='Личная правка';saveRecord(r);
    const old=dealRecord(northernArchives[0].id);old.people=[];saveRecord(old);

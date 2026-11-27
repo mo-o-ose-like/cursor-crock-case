@@ -41,8 +41,12 @@ export function allDeals() {
     const d=read(key)?.deal;
     if(d && !northernArchives.some(seed=>seed.id===d.id) && !deals.some(seed=>seed.id===d.id)) extra.push(d);
   }
-  return [northernDeal,...extra.sort((a,b)=>b.created-a.created),...deals.filter(d=>d.id!==northernDeal.id)];
+  const removed=new Set(read('cursor.demo.deleted-deals.v1',[]));
+  const others=[...extra.sort((a,b)=>b.created-a.created),...deals.filter(d=>d.id!==northernDeal.id)];
+  return [northernDeal,...others.filter(d=>!removed.has(d.id))];
 }
+export function deleteDeal(id){if(id===northernDeal.id)return;write('cursor.demo.deleted-deals.v1',[...new Set([...read('cursor.demo.deleted-deals.v1',[]),id])])}
+export function restoreDeal(id){write('cursor.demo.deleted-deals.v1',read('cursor.demo.deleted-deals.v1',[]).filter(value=>value!==id))}
 export function dealRecord(id) {
   const stored=read(recordPrefix+id);
   if(stored?.deal && Array.isArray(stored.people) && Array.isArray(stored.edges)) return stored;

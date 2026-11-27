@@ -290,7 +290,7 @@ export function mountMap({id,root,go,signal,search}){
       const name=person.dept||'Подразделение не указано';
       if(person.id===ghostId||matchedIds.has(person.id)&&!dismissedSearchGroups.has(name))groups.add(name);
     }
-    const options={...v,collapsed:(v.collapsed||[]).filter(g=>!groups.has(g))};
+    const options={...v,activeDepartment:transient?.groupKey,collapsed:(v.collapsed||[]).filter(g=>!groups.has(g))};
     const s=$('#surface'),space=usableSpace();
     if(v.camera&&!v.cameraMode){
       const previous=layout(graph.people,graph.edges,mode,options);
@@ -302,6 +302,9 @@ export function mountMap({id,root,go,signal,search}){
     layoutSpace=locked?(v.layoutViewport??=space):space;
     const source=scenarioLayer||graph;
     model=layout(source.people,source.edges,mode,options,layoutSpace.legacy?undefined:layoutSpace);
+    if(v.layoutMode!=='auto')for(const g of model.groups){
+      if(g.adjusted){v.orgGroups??={};v.orgGroups[g.key]={...v.orgGroups[g.key],x:g.x,y:g.y}}
+    }
     if(scenarioLayer&&graph.people.length!==source.people.length){
       const ids=new Set(graph.people.map(p=>p.id));
       for(const n of model.nodes.values())if(!ids.has(n.p.id))n.hidden=true;

@@ -125,7 +125,7 @@ function clearDetour(s,t,obstacles,wide=false){
   return path.reverse();
 }
 
-function route(a, b, f1, f2, obstacles, org, fixedSides) {
+function route(a, b, f1, f2, obstacles, org, fixedSides, reserved = [], minimumStub = 0) {
   const fromSides = fixedSides ? [fixedSides[0]] : preferredSides(a, b, org);
   const toSides = fixedSides ? [fixedSides[1]] : preferredSides(b, a, org);
   if (org) {
@@ -135,7 +135,7 @@ function route(a, b, f1, f2, obstacles, org, fixedSides) {
       return {x:o.x-pad,y:o.y-pad,w:o.w+2*pad,h:o.h+2*pad};
     });
     const verticalGap = Math.max(a.y,b.y) - Math.min(a.y+a.h,b.y+b.h);
-    if (!fixedSides && a.group && a.group===b.group && a.x===b.x && a.w===b.w && verticalGap>=0 && verticalGap<=16) {
+    if (!fixedSides && a.group && a.group===b.group && a.x===b.x && a.w===b.w && verticalGap>=0 && verticalGap<=28) {
       // Keep neighboring cards connected by a short, straight arrow.
       f1 = f2 = (f1+f2)/2;
     }
@@ -144,13 +144,14 @@ function route(a, b, f1, f2, obstacles, org, fixedSides) {
     start:port(a,from,f1,org?4:2),
     end:port(b,to,f2,org?4:3)
   });
+  const stub=Math.max(minimumStub,org?(a.group&&a.group===b.group?18:5):14);
   const blocked = (a,b) => obstacles.some(o=>intersects(a,b,o));
   let best = null, bestScore = Infinity;
   for (const [i, from] of fromSides.entries()) {
     for (const [j, to] of toSides.entries()) {
       const preference = (i + j) * 33;
       const {start,end} = ports(from,to);
-      const s = shift(start, sides[from], org?5:14), t = shift(end, sides[to], org?5:10);
+      const s = shift(start, sides[from], stub), t = shift(end, sides[to], org?stub:10);
       if (length(start, end) + preference >= bestScore) continue;
       const scoreRoute = vertices => {
         const points = simplify(vertices);
@@ -159,6 +160,13 @@ function route(a, b, f1, f2, obstacles, org, fixedSides) {
         for (let k = 1; k < points.length; k++) {
           const a = points[k - 1], b = points[k];
           score += length(a, b);
+          for(const used of reserved)for(let n=1;n<used.length;n++){
+            const c=used[n-1],d=used[n];
+            const axis=a.x===b.x&&c.x===d.x&&a.x===c.x?'y':a.y===b.y&&c.y===d.y&&a.y===c.y?'x':null;
+            if(!axis)continue;
+            const overlap=Math.min(Math.max(a[axis],b[axis]),Math.max(c[axis],d[axis]))-Math.max(Math.min(a[axis],b[axis]),Math.min(c[axis],d[axis]));
+            if(overlap>4)score+=500+overlap*2;
+          }
           if (score >= bestScore) return;
           if (org && blocked(a,b)) return;
           if (!org) for (const o of obstacles) if (intersects(a, b, o)) score += 12000;
@@ -177,6 +185,11 @@ function route(a, b, f1, f2, obstacles, org, fixedSides) {
       test([{x: t.x, y: s.y}]);
       const xs = new Set([(s.x + t.x) / 2, a.x - 12, a.x + a.w + 12, b.x - 12, b.x + b.w + 12]);
       const ys = new Set([(s.y + t.y) / 2, a.y - 13, a.y + a.h + 13, b.y - 13, b.y + b.h + 13]);
+      for(const used of reserved)for(let n=1;n<used.length;n++){
+        const c=used[n-1],d=used[n];
+        if(c.x===d.x){xs.add(c.x-14);xs.add(c.x+14)}
+        if(c.y===d.y){ys.add(c.y-14);ys.add(c.y+14)}
+      }
       for (const o of obstacles) {
         if (!intersects(s, {x:s.x,y:t.y}, o) && !intersects({x:s.x,y:t.y}, t, o)) continue;
         const gap=org?0:11;
@@ -189,7 +202,7 @@ function route(a, b, f1, f2, obstacles, org, fixedSides) {
   }
   if((org&&!best)||(best&&bestScore>=12000&&best.some((p,i)=>i>0&&blocked(best[i-1],p)))){
     for(const from of fromSides)for(const to of toSides){
-      const {start,end}=ports(from,to),stub=org?5:14;
+      const {start,end}=ports(from,to);
       const s=shift(start,sides[from],stub),t=shift(end,sides[to],stub);
       if(blocked(start,s)||blocked(t,end))continue;
       const detour=clearDetour(s,t,obstacles,org);
@@ -201,121 +214,25 @@ function route(a, b, f1, f2, obstacles, org, fixedSides) {
 }
 
 const departmentSides=['bottom','top'];
-const interpolate=(a,b,t)=>({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t});
-const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-const cubicTo=(first,last,end)=>' C'+coords(first)+' '+coords(last)+' '+coords(end);
-
-function cubicClear([a,b,c,d],rectangles,depth=8){
-  const left=Math.min(a.x,b.x,c.x,d.x),right=Math.max(a.x,b.x,c.x,d.x);
-  const top=Math.min(a.y,b.y,c.y,d.y),bottom=Math.max(a.y,b.y,c.y,d.y);
-  const nearby=rectangles.filter(r=>r.x<right&&r.x+r.w>left&&r.y<bottom&&r.y+r.h>top);
-  if(!nearby.length)return true;
-  if(!depth)return false;
-  // Split the Bézier until each control-point hull clears the nearby frames.
-  const ab=interpolate(a,b,.5),bc=interpolate(b,c,.5),cd=interpolate(c,d,.5);
-  const leftControl=interpolate(ab,bc,.5),rightControl=interpolate(bc,cd,.5);
-  const middle=interpolate(leftControl,rightControl,.5);
-  return cubicClear([a,ab,leftControl,middle],nearby,depth-1)&&
-    cubicClear([middle,rightControl,cd,d],nearby,depth-1);
-}
-
-function clearCubic(start,first,last,end,rectangles){
-  return cubicClear([start,first,last,end],rectangles)
-    ? {d:'M'+coords(start)+cubicTo(first,last,end),end,prev:last} : null;
-}
-
-function departmentFan(a,b,rectangles){
-  const start=port(a,departmentSides[0],0.5,4);
-  const end=port(b,departmentSides[1],0.5,4);
-  const gap=end.y-start.y;
-  if(gap<10)return null;
-  const dx=end.x-start.x;
-  const first={x:start.x+(dx ? dx*0.28 : Math.min(6,gap*0.18)),y:start.y+gap*0.22};
-  const last={x:end.x,y:end.y-gap*0.34};
-  return clearCubic(start,first,last,end,rectangles);
-}
-
-function sideCurve(a,b,from,to,rectangles,fromFraction,toFraction){
-  const start=port(a,from,fromFraction,4),end=port(b,to,toFraction,4);
-  const span=distance(start,end);
-  if(span<2)return null;
-  const reach=Math.min(96,span*.36);
-  const first=shift(start,sides[from],reach),last=shift(end,sides[to],reach);
-  const flatX=start.x===end.x&&first.x===last.x,flatY=start.y===end.y&&first.y===last.y;
-  // Keep a slight bend when the ports line up exactly.
-  if(flatX)first.x+=Math.min(9,span*.09);
-  if(flatY)first.y+=Math.min(9,span*.09);
-  return clearCubic(start,first,last,end,rectangles);
-}
-
-function curvedDepartmentDetour(points,rectangles){
-  const waypoints=[points[0]];
-  for(let i=0;i<points.length-1;){
-    let j=points.length-1;
-    // Remove right-angled doglegs where a diagonal can safely cross the gap.
-    while(j>i+1&&!cubicClear([points[i],points[i],points[j],points[j]],rectangles))j--;
-    waypoints.push(points[j]);
-    i=j;
+function orgDepartmentRoute(line,lines,groups){
+  const {a,b}=line;
+  const start=port(a,'bottom',.5,4),end=port(b,'top',.5,4);
+  const children=lines.filter(l=>l.department&&l.a===a&&l.b.y>a.y+a.h+16);
+  if(end.y-start.y>=16){
+    // Siblings share one level horizontal rail instead of a fan of Béziers.
+    const nearestTop=Math.min(...children.map(l=>l.b.y-4));
+    const railY=(start.y+nearestTop)/2;
+    const points=simplify([start,{x:start.x,y:railY},{x:end.x,y:railY},end]);
+    const obstacles=groups.map(g=>{
+      const pad=g===a||g===b?2:6;
+      return {x:g.x-pad,y:g.y-pad,w:g.w+pad*2,h:g.h+pad*2};
+    });
+    if(points&&!points.some((p,i)=>i&&obstacles.some(r=>intersects(points[i-1],p,r))))return points;
   }
-  if(waypoints.length===2){
-    const [start,end]=waypoints;
-    const span=distance(start,end);
-    const normal={x:(start.y-end.y)/span,y:(end.x-start.x)/span};
-    const first=interpolate(start,end,1/3),last=interpolate(start,end,2/3);
-    const bend=Math.min(6,span*.12);
-    const curved=clearCubic(start,shift(first,normal,bend),last,end,rectangles)??
-      clearCubic(start,shift(first,normal,-bend),last,end,rectangles);
-    if(curved)return curved;
-  }
-  let cursor=waypoints[0],d='M'+coords(cursor),prev;
-  function straightTo(point){
-    if(distance(cursor,point)<.05)return;
-    prev=interpolate(cursor,point,2/3);
-    d+=cubicTo(interpolate(cursor,point,1/3),prev,point);
-    cursor=point;
-  }
-  for(let i=1;i<waypoints.length-1;i++){
-    const [a,b,c]=waypoints.slice(i-1,i+2);
-    const incoming=distance(a,b),outgoing=distance(b,c);
-    let radius=Math.min(48,incoming*.44,outgoing*.44);
-    // Shrink a swept turn only as much as needed to miss a nearby frame.
-    while(radius>=.025){
-      const enter=interpolate(b,a,radius/incoming),leave=interpolate(b,c,radius/outgoing);
-      const first=interpolate(enter,b,.62),last=interpolate(leave,b,.62);
-      if(cubicClear([enter,first,last,leave],rectangles)){
-        straightTo(enter);
-        d+=cubicTo(first,last,leave);
-        cursor=leave;prev=last;
-        break;
-      }
-      radius*=.5;
-    }
-    if(radius<.025)straightTo(b);
-  }
-  const end=waypoints.at(-1);
-  straightTo(end);
-  return {d,end,prev:prev??waypoints.at(-2)};
-}
-
-function departmentCurve(a,b,departments,fromFraction=.5,toFraction=.5){
-  const rectangles=departments.map(g=>{
-    const margin=g===a||g===b?2:3;
-    return {x:g.x-margin,y:g.y-margin,w:g.w+2*margin,h:g.h+2*margin};
-  });
-  const centered=fromFraction===.5&&toFraction===.5;
-  const fan=centered&&departmentFan(a,b,rectangles);
-  if(fan)return fan;
-  // On stacked layouts retain the common bottom port if there is a safe detour.
-  if(centered&&a.y+a.h<b.y){
-    const fanRoute=route(a,b,.5,.5,departments,true,departmentSides);
-    if(fanRoute)return curvedDepartmentDetour(fanRoute,rectangles);
-  }
-  for(const from of preferredSides(a,b,true))for(const to of preferredSides(b,a,true)){
-    const direct=sideCurve(a,b,from,to,rectangles,fromFraction,toFraction);
-    if(direct)return direct;
-  }
-  const detour=route(a,b,fromFraction,toFraction,departments,true);
-  return detour?curvedDepartmentDetour(detour,rectangles):null;
+  // Dragged or wrapped departments may block the shared rail. Keep their
+  // detours orthogonal as well, using clear tracks outside the other frames.
+  return (end.y-start.y>=16?route(a,b,.5,.5,groups,true,departmentSides):null)
+    ?? route(a,b,.5,.5,groups,true);
 }
 
 function sideOf(box, point) {
@@ -327,7 +244,7 @@ function sideOf(box, point) {
 function spaceOrgPorts(lines) {
   const byBox = new Map();
   for (const line of lines) {
-    if (!line.points) continue;
+    if (!line.points || line.department) continue;
     line.ports = [[line.a, line.b, line.points[0]], [line.b, line.a, line.points.at(-1)]]
       .map(([box, peer, point]) => {
         const side = sideOf(box, point);
@@ -470,22 +387,27 @@ export function edgeArt(edges, model, mode, selected, matching, staleEdges, show
     }
   });
   if (influence) routeInfluenceMembers(lines);
+  const departmentRoutes=[];
   for (const line of lines) {
     if (influence && !line.department) continue;
     const {a,b,index} = line;
     const fromFraction=portFraction(incidents.get(a),index),toFraction=portFraction(incidents.get(b),index);
     if(line.department){
-      line.curve=influence?departmentCurve(a,b,model.groups,fromFraction,toFraction):departmentCurve(a,b,model.groups);
+      if(org)line.points=orgDepartmentRoute(line,lines,model.groups);
+      else {
+        line.points=route(a,b,fromFraction,toFraction,model.groups,true,undefined,departmentRoutes,18);
+        if(line.points)departmentRoutes.push(line.points);
+      }
       continue;
     }
     line.obstacles=obstacles;
     line.points = route(a,b,fromFraction,toFraction,obstacles,org);
   }
   if (org) spaceOrgPorts(lines);
-  const groups = lines.map(({a,b,index,links,points,department,curve}) => {
-    if (!points&&!curve) return '';
+  const groups = lines.map(({a,b,index,links,points,department}) => {
+    if (!points) return '';
     const withinInfluence=influence&&!department;
-    const d = curve?.d ?? roundedPath(points, withinInfluence?6:org?12:11);
+    const d = roundedPath(points, withinInfluence||department?6:org?12:11);
     const firstType=lineType(links[0],mode);
     const type=department&&org?'department':department&&links.some(edge=>lineType(edge,mode)!==firstType)?'mixed':firstType;
     const names = department ? [a.name,b.name]
@@ -493,7 +415,7 @@ export function edgeArt(edges, model, mode, selected, matching, staleEdges, show
     const label = esc(names.join(' → ') + '. ' + labels[mode][type]+(influence&&department?` · Связей ${links.length}`:''));
     const incident = links.some(edge => edge.a === selected || edge.b === selected);
     const faded = (influence&&selected&&!incident) || (matching && !links.some(edge => matching.get(edge.a) || matching.get(edge.b)));
-    const end = curve?.end ?? points.at(-1), prev = curve?.prev ?? points.at(-2);
+    const end = points.at(-1), prev = points.at(-2);
     const angle = Math.round(Math.atan2(end.y - prev.y, end.x - prev.x) * 180 / Math.PI);
     const tipLength = grouped && !department ? Math.min(7, length(prev,end)) : 7;
     const tipWidth = Math.min(4, tipLength * 0.6);
