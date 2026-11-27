@@ -45,7 +45,7 @@
 .map-content{position:relative;flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);--panel-w:clamp(300px,26vw,380px)}.map-content.with-panel{grid-template-columns:minmax(0,1fr) var(--panel-w)}
 #surface{grid-column:1;grid-row:1;position:relative;overflow:hidden;touch-action:none;cursor:grab;background-color:#fff;background-image:radial-gradient(circle at 1px 1px,#cad0d4 1.2px,transparent 1.25px);background-size:27px 27px;outline-offset:-4px;min-height:0}
 #surface.dragging,#surface.dragging *{cursor:grabbing!important;user-select:none}#world{position:absolute;top:0;left:0;width:1px;height:1px;transform-origin:0 0;will-change:transform}.edges{position:absolute;top:0;left:0;overflow:visible;pointer-events:none}.edge{stroke:#566979;fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}.edge.limited{stroke:#96a4b0;stroke-width:1.6}.edge.assumed{stroke:#6b8496;stroke-dasharray:6 5;stroke-width:1.9}.edge.fade{opacity:.3}
-.dept-frame{position:absolute;border:1px solid #cbd5da;border-radius:17px;background:#f6f8f9e8;pointer-events:none}.dept-frame.influence-group{border-style:dashed;background:#f3f5f6ed}
+.dept-frame{position:absolute;border:1px solid #cbd5da;border-radius:17px;background:#f6f8f9e8;pointer-events:none}
 .dept-label{position:absolute;display:flex;align-items:center;gap:8px;background:transparent;border:0;color:#34434d;padding:9px 13px;height:38px;border-radius:14px;font-size:13px;text-align:left;z-index:1}.dept-label strong{font-weight:600}.dept-label span{margin-left:auto;color:var(--muted);font-size:12px}.dept-label:not(.static):hover{background:#e8eef1}
 .person-card{position:absolute;display:flex;flex-direction:column;padding:14px;border:1.5px solid #acbac3;border-radius:var(--card);background:#fff;text-align:left;box-shadow:0 2px 5px #243b4b0a;user-select:none;touch-action:none;cursor:pointer;font:400 14px/1.35 var(--body);color:var(--ink)}
 .person-card:hover{border-color:var(--brand);box-shadow:0 3px 10px #1d4d6a16}.person-card.selected{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand)}.person-card.dim{opacity:.27}.person-card.dim:hover,.person-card.dim:focus-visible{opacity:.8}
@@ -119,5 +119,6 @@
 .obs-form .error:empty{display:none}
 
 #surface.free-layout [data-org-group]{cursor:grab}
-#surface.free-layout .dept-frame[data-org-group]{pointer-events:auto}
+#surface.free-layout .dept-frame[data-dept-group]{pointer-events:auto}
+#surface.free-layout .dept-label{cursor:grab}
 #surface.free-layout .person-card.org{cursor:ns-resize}

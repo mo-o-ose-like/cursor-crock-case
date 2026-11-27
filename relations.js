@@ -14,8 +14,9 @@ export function relationData(edge,mode,people){
   const name=id=>people.find(p=>p.id===id)?.name||'Участник';
   const demo=people.some(p=>p.id===edge.a&&p.source==='Демонстрационная CRM')&&people.some(p=>p.id===edge.b&&p.source==='Демонстрационная CRM');
   const example=demo&&exampleRelation(edge,people);
-  const baseStatus=mode==='process'?(edge.strength==='assumed'?'planned':edge.strength==='limited'?'done':'established'):edge.strength||'limited';
-  const status=mode==='scenario'?(edge.proposal||'current'):(edge.status in statuses[mode]?edge.status:mode==='org'?'formal':baseStatus);
+  const baseStatus=mode==='process'?(edge.strength==='assumed'?'planned':edge.strength==='limited'?'done':'established'):
+    Object.hasOwn(statuses[mode],edge.strength)?edge.strength:'limited';
+  const status=mode==='scenario'?(edge.proposal||'current'):(Object.hasOwn(statuses[mode],edge.status)?edge.status:mode==='org'?'formal':baseStatus);
   const impact=`Если контакт сохранится, ${name(edge.a)} сможет передать информацию участнику «${name(edge.b)}». Проверьте, готов ли адресат продолжить обсуждение.`;
   const text=mode==='scenario'?(edge.effect||edge.proposal&&edge.text||impact):(edge.text??example?.text??'');
   return {...edge,status,text,date:edge.date??example?.date??''};
@@ -67,19 +68,32 @@ const titles={org:'Формальное подчинение',process:'Пере�
 const progress={done:'Состоялся',established:'В процессе',planned:'Запланирован'};
 const strengths={strong:'Сильное',limited:'Ограниченное',assumed:'Не установлена'};
 
-export function departmentRelationCard({from,to,links},model,preview=false){
+export function departmentRelationCard({from,to,links},model,preview=false,mode='org',people=[]){
   const controls=preview?'':'<button class="icon-btn" data-map="close-pop" aria-label="Закрыть">×</button>';
+  const direction='<p class="edge-direction">'+esc(from.name)+' → '+esc(to.name)+'</p>';
+  if(mode==='influence'){
+    const shown=preview?links.slice(0,3):links;
+    const rows=shown.map(({edge,index})=>{
+      const {a,b,facts,status}=relationFacts(edge,mode,people);
+      const summary='<strong>'+esc(a)+' → '+esc(b)+'</strong><span class="influence-relation-status edge-'+status+'">'+esc(statuses.influence[status])+'</span>';
+      return preview?'<li>'+summary+'</li>':
+        '<li><details'+(links.length===1?' open':'')+'><summary>'+summary+'</summary>'+facts+
+        '<button class="text-act" type="button" data-department-edge-edit="'+index+'">Редактировать связь</button></details></li>';
+    }).join('');
+    return '<section class="map-popover relation-pop"><div class="pop-head"><h2>Влияние между отделами</h2>'+controls+'</div>'+direction+
+      '<ul class="influence-relations">'+rows+'</ul>'+(shown.length<links.length?'<small>Ещё '+(links.length-shown.length)+' · нажмите на стрелку, чтобы открыть все связи</small>':'')+'</section>';
+  }
   const rows=links.map(({edge,index})=>{
     const a=model.nodes.get(edge.a).p.name,b=model.nodes.get(edge.b).p.name;
     const names=esc(a)+' → '+esc(b);
     return preview?'<li>'+names+'</li>'
-      :'<li><button class="text-act" type="button" data-org-edge-edit="'+index+'" aria-label="Редактировать связь: '+esc(a)+' → '+esc(b)+'">'+names+'</button></li>';
+      :'<li><button class="text-act" type="button" data-department-edge-edit="'+index+'" aria-label="Редактировать связь: '+esc(a)+' → '+esc(b)+'">'+names+'</button></li>';
   }).join('');
   return '<section class="map-popover relation-pop"><div class="pop-head"><h2>Подчинение отделов</h2>'+controls+'</div>'+
-    '<p class="edge-direction">'+esc(from.name)+' → '+esc(to.name)+'</p>'+
+    direction+
     '<small>Связи руководителей и сотрудников</small><ul class="department-relations">'+rows+'</ul></section>';
 }
-export function relationCard(edge,mode,people,preview=false,findings=[]){
+function relationFacts(edge,mode,people,findings=[]){
   const item=relationData(edge,mode,people);
   const from=people.find(p=>p.id===edge.a),to=people.find(p=>p.id===edge.b);
   const a=from?.name||'Участник',b=to?.name||'Участник';
@@ -116,9 +130,13 @@ export function relationCard(edge,mode,people,preview=false,findings=[]){
     row('Оценка',changed?'Гипотеза сценария':'Текущая связь. Возможные последствия — гипотеза.');
     row('Дата',when);
   }
+  return {a,b,status:item.status,facts:'<dl class="edge-facts">'+rows.join('')+'</dl>'};
+}
+export function relationCard(edge,mode,people,preview=false,findings=[]){
+  const {a,b,facts}=relationFacts(edge,mode,people,findings);
   const controls=preview?'':'<button class="icon-btn" data-map="close-pop" aria-label="Закрыть">×</button>';
   const edit=preview?'':'<button class="text-act" data-map="edit-edge">Редактировать связь</button>';
   return '<section class="map-popover relation-pop"><div class="pop-head"><h2>'+titles[mode]+'</h2>'+controls+'</div>'+
     (mode==='org'?'':'<p class="edge-direction">'+esc(a)+' → '+esc(b)+'</p>')+
-    '<dl class="edge-facts">'+rows.join('')+'</dl>'+edit+'</section>';
+    facts+edit+'</section>';
 }

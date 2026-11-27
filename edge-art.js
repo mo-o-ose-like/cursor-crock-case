@@ -3,7 +3,7 @@ import {esc} from './components.js';
 const labels = {
   org: {department: 'Подчинение отделов', formal: 'Формальное подчинение'},
   process: {done: 'Пройденный путь', established: 'Установленная связь', planned: 'Запланированная связь'},
-  influence: {strong: 'Сильное · подтверждено', limited: 'Ограниченное · подтверждено', assumed: 'Предполагаемое · не подтверждено'},
+  influence: {strong: 'Сильное · подтверждено', limited: 'Ограниченное · подтверждено', assumed: 'Предполагаемое · не подтверждено', mixed:'Связи разных типов'},
   scenario: {current: 'Текущая связь', new: 'Предлагается добавить', remove: 'Предлагается удалить', change: 'Предлагается изменить'}
 };
 
@@ -11,7 +11,10 @@ function lineType(e, mode) {
   if (mode === 'org') return 'formal';
   if (mode === 'scenario') return Object.hasOwn(labels.scenario, e.proposal) ? e.proposal : 'current';
   if (Object.hasOwn(labels[mode], e.status)) return e.status;
-  if (mode === 'influence') return Object.hasOwn(labels.influence, e.strength) ? e.strength : 'limited';
+  if (mode === 'influence') {
+    if (['strong','limited','assumed'].includes(e.status)) return e.status;
+    return ['strong','limited','assumed'].includes(e.strength) ? e.strength : 'limited';
+  }
   if (e.strength === 'assumed') return 'planned';
   if (e.strength === 'limited') return 'done';
   return 'established';
@@ -231,8 +234,8 @@ function departmentFan(a,b,rectangles){
   return clearCubic(start,first,last,end,rectangles);
 }
 
-function sideCurve(a,b,from,to,rectangles){
-  const start=port(a,from,.5,4),end=port(b,to,.5,4);
+function sideCurve(a,b,from,to,rectangles,fromFraction,toFraction){
+  const start=port(a,from,fromFraction,4),end=port(b,to,toFraction,4);
   const span=distance(start,end);
   if(span<2)return null;
   const reach=Math.min(96,span*.36);
@@ -293,23 +296,24 @@ function curvedDepartmentDetour(points,rectangles){
   return {d,end,prev:prev??waypoints.at(-2)};
 }
 
-function departmentCurve(a,b,departments){
+function departmentCurve(a,b,departments,fromFraction=.5,toFraction=.5){
   const rectangles=departments.map(g=>{
     const margin=g===a||g===b?2:3;
     return {x:g.x-margin,y:g.y-margin,w:g.w+2*margin,h:g.h+2*margin};
   });
-  const fan=departmentFan(a,b,rectangles);
+  const centered=fromFraction===.5&&toFraction===.5;
+  const fan=centered&&departmentFan(a,b,rectangles);
   if(fan)return fan;
   // On stacked layouts retain the common bottom port if there is a safe detour.
-  if(a.y+a.h<b.y){
-    const centered=route(a,b,.5,.5,departments,true,departmentSides);
-    if(centered)return curvedDepartmentDetour(centered,rectangles);
+  if(centered&&a.y+a.h<b.y){
+    const fanRoute=route(a,b,.5,.5,departments,true,departmentSides);
+    if(fanRoute)return curvedDepartmentDetour(fanRoute,rectangles);
   }
   for(const from of preferredSides(a,b,true))for(const to of preferredSides(b,a,true)){
-    const direct=sideCurve(a,b,from,to,rectangles);
+    const direct=sideCurve(a,b,from,to,rectangles,fromFraction,toFraction);
     if(direct)return direct;
   }
-  const detour=route(a,b,.5,.5,departments,true);
+  const detour=route(a,b,fromFraction,toFraction,departments,true);
   return detour?curvedDepartmentDetour(detour,rectangles):null;
 }
 
@@ -367,21 +371,30 @@ export function departmentPair(edge,model) {
   return from&&to&&from.name!==to.name ? {from,to} : null;
 }
 
-export function edgeArt(edges, model, mode, selected, matching, staleEdges) {
+export function matchesInfluenceEvidence(edge,evidence){
+  const assumed=lineType(edge,'influence')==='assumed';
+  return evidence==='confirmed'?!assumed:evidence==='assumed'?assumed:true;
+}
+
+export function edgeArt(edges, model, mode, selected, matching, staleEdges, showEdge) {
   const org = mode === 'org';
+  const influence = mode === 'influence';
+  const grouped = org || influence;
   const incidents = new Map();
   const obstacles = [...model.nodes.values()].filter(n => !n.hidden);
-  for (const g of model.groups) obstacles.push(g.collapsed ? g : {x:g.x,y:g.y,w:g.w,h:38});
+  const headers = new Map(model.groups.map(g=>[g,g.collapsed?g:{x:g.x,y:g.y,w:g.w,h:38}]));
+  obstacles.push(...headers.values());
   const departments = new Map();
   const lines = [];
   edges.forEach((edge, index) => {
+    if (showEdge && !showEdge(edge)) return;
     const na = model.nodes.get(edge.a), nb = model.nodes.get(edge.b);
     if (!na || !nb) return;
-    const pair = org && departmentPair(edge,model);
+    const pair = grouped && departmentPair(edge,model);
     const a = pair?.from ?? (na.hidden ? na.group : na);
     const b = pair?.to ?? (nb.hidden ? nb.group : nb);
     if (!a || !b || a === b) return;
-    const line = {a,b,index,links:[edge],department:!!pair,obstacles:pair?model.groups:obstacles};
+    const line = {a,b,index,links:[edge],department:!!pair};
     if (pair) {
       const key = JSON.stringify([a.key,b.key]);
       const existing = departments.get(key);
@@ -396,26 +409,29 @@ export function edgeArt(edges, model, mode, selected, matching, staleEdges) {
   });
   for (const line of lines) {
     const {a,b,index} = line;
+    const fromFraction=portFraction(incidents.get(a),index),toFraction=portFraction(incidents.get(b),index);
     if(line.department){
-      line.curve=departmentCurve(a,b,line.obstacles);
+      line.curve=influence?departmentCurve(a,b,model.groups,fromFraction,toFraction):departmentCurve(a,b,model.groups);
       continue;
     }
-    line.points = route(a,b,portFraction(incidents.get(a),index),
-      portFraction(incidents.get(b),index),line.obstacles,org);
+    line.obstacles=influence?model.groups.map(g=>g===a.group?headers.get(g):g)
+      .concat(a.group?.members.map(id=>model.nodes.get(id))||[]):obstacles;
+    line.points = route(a,b,fromFraction,toFraction,line.obstacles,grouped);
   }
-  if (org) spaceOrgPorts(lines);
+  if (grouped) spaceOrgPorts(lines);
   const groups = lines.map(({a,b,index,links,points,department,curve}) => {
     if (!points&&!curve) return '';
-    const d = curve?.d ?? roundedPath(points, org ? 12 : 11);
-    const type = department ? 'department' : lineType(links[0], mode);
-    const names = type === 'department' ? [a.name,b.name]
+    const d = curve?.d ?? roundedPath(points, grouped ? 12 : 11);
+    const firstType=lineType(links[0],mode);
+    const type=department&&org?'department':department&&links.some(edge=>lineType(edge,mode)!==firstType)?'mixed':firstType;
+    const names = department ? [a.name,b.name]
       : [model.nodes.get(links[0].a).p.name,model.nodes.get(links[0].b).p.name];
-    const label = esc(names.join(' → ') + '. ' + labels[mode][type]);
-    const faded = matching && !links.some(edge => matching.get(edge.a) || matching.get(edge.b));
+    const label = esc(names.join(' → ') + '. ' + labels[mode][type]+(influence&&department?` · Связей ${links.length}`:''));
     const incident = links.some(edge => edge.a === selected || edge.b === selected);
+    const faded = (influence&&selected&&!incident) || (matching && !links.some(edge => matching.get(edge.a) || matching.get(edge.b)));
     const end = curve?.end ?? points.at(-1), prev = curve?.prev ?? points.at(-2);
     const angle = Math.round(Math.atan2(end.y - prev.y, end.x - prev.x) * 180 / Math.PI);
-    const tipLength = org && !department ? Math.min(7, length(prev,end)) : 7;
+    const tipLength = grouped && !department ? Math.min(7, length(prev,end)) : 7;
     const tipWidth = Math.min(4, tipLength * 0.6);
     const stale=staleEdges&&links.some(edge=>staleEdges.has(JSON.stringify([edge.kind,edge.a,edge.b])));
     return '<g class="connection edge-' + type + (stale?' stale-connection':'') + (faded ? ' edge-muted' : '') + (incident ? ' edge-incident' : '') +
