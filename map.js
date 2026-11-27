@@ -279,8 +279,8 @@ export function mountMap({id,root,go,signal,search}){
     syncFindingVisibility();
     const tokens=terms(v.query);
     const matching=new Map(graph.people.map(p=>[p.id,tokens.length?matchedIds.has(p.id):filterPerson(p,v.filters)]));
-    const frames=model.groups.map(g=>`<div class="dept-frame ${mode==='influence'?'influence-group':''}" style="${xy(g)}"></div>`).join('');
-    const labels=model.groups.map(g=>mode==='org'?`<button class="dept-label" style="left:${g.x}px;top:${g.y}px;width:${g.w}px" data-collapse="${esc(g.name)}" aria-expanded="${!g.collapsed}">${icon('building',15)}<strong title="${esc(g.name)}">${marked(g.name,tokens)}</strong><span>${g.members.length}</span>${icon(g.collapsed?'chevron':'down',14)}</button>`:`<div class="dept-label static" style="left:${g.x}px;top:${g.y}px;width:${g.w}px">${icon('building',15)}<strong title="${esc(g.name)}">${marked(g.name,tokens)}</strong></div>`).join('');
+    const frames=model.groups.map(g=>`<div class="dept-frame ${mode==='influence'?'influence-group':''}" style="${xy(g)}"${mode==='org'?` data-org-group="${esc(g.key)}"`:''}></div>`).join('');
+    const labels=model.groups.map(g=>mode==='org'?`<button class="dept-label" style="left:${g.x}px;top:${g.y}px;width:${g.w}px" data-collapse="${esc(g.name)}" data-org-group="${esc(g.key)}" aria-expanded="${!g.collapsed}">${icon('building',15)}<strong title="${esc(g.name)}">${marked(g.name,tokens)}</strong><span>${g.members.length}</span>${icon(g.collapsed?'chevron':'down',14)}</button>`:`<div class="dept-label static" style="left:${g.x}px;top:${g.y}px;width:${g.w}px">${icon('building',15)}<strong title="${esc(g.name)}">${marked(g.name,tokens)}</strong></div>`).join('');
     const neighbors=new Set(graph.edges.filter(e=>e.a===v.selected||e.b===v.selected).flatMap(e=>[e.a,e.b]));
     neighbors.delete(v.selected);
     const lines=edgeArt(graph.edges,model,mode,v.selected,matching,staleEdges);
@@ -539,7 +539,7 @@ export function mountMap({id,root,go,signal,search}){
     }
     if(pop==='layout'){
       const row=(key,title,detail,chosen)=>`<button class="layout-row" data-map="${key}" aria-pressed="${chosen}"><span><b>${title}</b><small>${detail}</small></span><i>${chosen?'✓':''}</i></button>`;
-      el.innerHTML='<section class="map-popover layout-pop"><div class="pop-head"><h2>Управление картой</h2>'+iconControl('close-pop','close','Закрыть')+'</div>'+row('auto','Упорядочить карту','Автоматическая раскладка и вписывание в экран',v.layoutMode==='auto')+row('free','Свободное расположение','Перемещать карточки вручную',v.layoutMode==='free')+row('edge-edit','Редактирование связей','Добавить, перенаправить или удалить стрелку',edgeEditing)+'</section>';return;
+      el.innerHTML='<section class="map-popover layout-pop"><div class="pop-head"><h2>Управление картой</h2>'+iconControl('close-pop','close','Закрыть')+'</div>'+row('auto','Упорядочить карту','Автоматическая раскладка и вписывание в экран',v.layoutMode==='auto')+row('free','Свободное расположение',mode==='org'?'Перетаскивать отделы за заголовок и менять порядок карточек внутри':'Перемещать карточки вручную',v.layoutMode==='free')+row('edge-edit','Редактирование связей','Добавить, перенаправить или удалить стрелку',edgeEditing)+'</section>';return;
     }
 
     if(pop==='results'){
@@ -730,8 +730,8 @@ export function mountMap({id,root,go,signal,search}){
     if(key==='auto'||key==='free'){
       pop='';edgeEditing=false;edgeStart=null;
       if(key==='free'){v.layoutViewport=layoutSpace;v.layoutMode='free';refresh();save();return}
-      if(!Object.keys(v.positions).length){v.layoutMode='auto';v.cameraMode='overview';refresh();save();return}
-      editView(key==='auto'?'Автоматическая раскладка':'Свободное расположение',()=>{v.layoutMode=key;if(key==='auto'){v.positions={};v.camera=null}});
+      if(!Object.keys(v.positions).length&&!Object.keys(v.orgGroups||{}).length){v.layoutMode='auto';v.cameraMode='overview';refresh();save();return}
+      editView(key==='auto'?'Автоматическая раскладка':'Свободное расположение',()=>{v.layoutMode=key;if(key==='auto'){v.positions={};delete v.orgGroups;v.camera=null}});
       if(key==='auto')fit();return
     }
     if(key==='edge-edit'||key==='end-edge'){if(key==='edge-edit'&&mode==='scenario'&&v.assistantEnabled)v.comparison='after';edgeEditing=key==='edge-edit'&&!edgeEditing;edgeStart=null;pop='';refresh();return}
@@ -807,26 +807,66 @@ export function mountMap({id,root,go,signal,search}){
     zoom(Math.exp(clamp(-e.deltaY*.0015,-.35,.35)),{x:e.clientX-r.left,y:e.clientY-r.top});
   },{signal,passive:false});
   root.addEventListener('pointerdown',e=>{
-    const s=e.target.closest('#surface');if(!s||e.button!==0||e.target.closest('.dept-label,#empty-map button,[data-edge-index]'))return;
-    const node=e.target.closest('[data-node]');const pid=node?.dataset.node;
-    if(pid&&(v.layoutMode!=='free'||edgeEditing))return;
-    transient={before:pid?viewEdit(v):null,id:e.pointerId,x:e.clientX,y:e.clientY,pid,start:pid?{...model.nodes.get(pid)}:{...v.camera},moved:false};
+    const surface=e.target.closest('#surface');
+    if(!surface||!e.isPrimary||e.button!==0||e.target.closest('#empty-map button,[data-edge-index]'))return;
+    const pid=e.target.closest('[data-node]')?.dataset.node;
+    const groupKey=e.target.closest('[data-org-group]')?.dataset.orgGroup;
+    if((pid||groupKey)&&(v.layoutMode!=='free'||edgeEditing))return;
+    const node=pid?model.nodes.get(pid):null;
+    const group=groupKey?model.groups.find(g=>g.key===groupKey):node?.group;
+    if(pid&&mode==='org'&&group.members.length<2)return;
+    const origin=node||group||v.camera;
+    const drag={before:pid||groupKey?viewEdit(v):null,id:e.pointerId,x:e.clientX,y:e.clientY,pid,groupKey,start:{x:origin.x,y:origin.y},moved:false};
+    if(pid&&mode==='org'){
+      const [first,second]=group.members;
+      const top=model.nodes.get(first).y;
+      const index=group.members.indexOf(pid);
+      drag.reorder={key:group.key,members:group.members,top,pitch:model.nodes.get(second).y-top,index,slot:index,
+        originalOrder:v.orgGroups?.[group.key]?.order};
+    }
+    transient=drag;
   },{signal});
   root.addEventListener('pointermove',e=>{
     const t=transient;if(!t||e.pointerId!==t.id)return;
     const dx=e.clientX-t.x,dy=e.clientY-t.y;if(!t.moved&&Math.hypot(dx,dy)<5)return;
     if(!t.moved){manualCamera();$('#surface').setPointerCapture(e.pointerId);t.moved=true;$('#surface').classList.add('dragging')}
-    if(t.pid){
-      v.positions[t.pid]={x:t.start.x+dx/v.camera.z,y:t.start.y+dy/v.camera.z};
-      if(typeof requestAnimationFrame!=='function'){arrange();drawWorld()}
-      else if(!dragFrame)dragFrame=requestAnimationFrame(()=>{dragFrame=0;arrange();drawWorld()});
-    }
-    else{manualCamera();v.camera.x=t.start.x+dx;v.camera.y=t.start.y+dy;transform()}
+    if(!t.before){v.camera.x=t.start.x+dx;v.camera.y=t.start.y+dy;transform();return}
+    const point={x:t.start.x+dx/v.camera.z,y:t.start.y+dy/v.camera.z};
+    if(t.reorder){
+      const {key,members,top,pitch,index,originalOrder}=t.reorder;
+      const slot=clamp(Math.round((point.y-top)/pitch),0,members.length-1);
+      if(slot===t.reorder.slot)return;
+      t.reorder.slot=slot;
+      v.orgGroups??={};
+      const saved={...v.orgGroups[key]};
+      if(slot===index){
+        if(originalOrder)saved.order=originalOrder;
+        else delete saved.order;
+      }else{
+        const order=members.filter(id=>id!==t.pid);
+        order.splice(slot,0,t.pid);
+        saved.order=order;
+      }
+      if(Object.keys(saved).length)v.orgGroups[key]=saved;
+      else delete v.orgGroups[key];
+    }else if(t.groupKey){
+      v.orgGroups??={};
+      v.orgGroups[t.groupKey]={...v.orgGroups[t.groupKey],...point};
+    }else v.positions[t.pid]=point;
+    if(typeof requestAnimationFrame!=='function'){arrange();drawWorld()}
+    else if(!dragFrame)dragFrame=requestAnimationFrame(()=>{dragFrame=0;arrange();drawWorld()});
   },{signal});
   function endDrag(e){
     if(!transient||e.pointerId!==transient.id)return;
     if(dragFrame){cancelAnimationFrame(dragFrame);dragFrame=0;arrange();drawWorld()}
-    if(transient.moved){suppressClick=true;setTimeout(()=>suppressClick=false,0);$('#surface')?.classList.remove('dragging');if(transient.pid){remember(history,{mode,label:'Перемещение участника',before:transient.before,after:viewEdit(v)});drawControls();transform()}save()}
+    if(transient.moved){
+      suppressClick=true;setTimeout(()=>suppressClick=false,0);$('#surface')?.classList.remove('dragging');
+      if(transient.before){
+        remember(history,{mode,label:transient.groupKey?'Перемещение отдела':transient.reorder?'Порядок участников в отделе':'Перемещение участника',before:transient.before,after:viewEdit(v)});
+        drawControls();transform();
+      }
+      save();
+    }
     transient=null;
   }
   window.addEventListener('pointerup',endDrag,{signal});window.addEventListener('pointercancel',endDrag,{signal});

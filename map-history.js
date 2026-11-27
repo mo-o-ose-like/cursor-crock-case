@@ -42,7 +42,7 @@ export function applyRecordDiff(record,patch,reverse=false){
   return {...record,people,edges:mergeRows(record.edges,patch.edges,edgeId,reverse).filter(e=>ids.has(e.a)&&ids.has(e.b))};
 }
 export function viewEdit(view){
-  return clone({positions:view.positions||{},layoutMode:view.layoutMode||(Object.keys(view.positions||{}).length?'free':'auto'),histories:view.histories||{},branches:view.branches||{}});
+  return clone({positions:view.positions||{},orgGroups:view.orgGroups||{},layoutMode:view.layoutMode||(Object.keys(view.positions||{}).length?'free':'auto'),histories:view.histories||{},branches:view.branches||{}});
 }
 export function historyFor(id){
   if(!histories.has(id))histories.set(id,{undo:[],redo:[]});

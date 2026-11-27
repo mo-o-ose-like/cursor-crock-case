@@ -117,3 +117,7 @@
 .obs-opinion p{white-space:pre-wrap;overflow-wrap:anywhere}
 .obs-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .obs-form .error:empty{display:none}
+
+#surface.free-layout [data-org-group]{cursor:grab}
+#surface.free-layout .dept-frame[data-org-group]{pointer-events:auto}
+#surface.free-layout .person-card.org{cursor:ns-resize}

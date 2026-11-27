@@ -154,6 +154,7 @@ function alignDepartments(ranks, members, edges) {
 }
 function groupPositions(people,mode,h,edges,viewport,collapsed){
   const by=new Map();
+  let splitGroups=false;
   for(const p of people){const key=dept(p);if(!by.has(key))by.set(key,[]);by.get(key).push(p)}
   let keys=[...by.keys()];const top=mode==='org'?people.find(p=>p.id==='general'):people.find(p=>p.decision);
   const first=top?dept(top):keys[0];let rows=[];
@@ -170,7 +171,7 @@ function groupPositions(people,mode,h,edges,viewport,collapsed){
     if(grouped)rows=grouped;
     else{
       // Cross-department reporting can return to an earlier department at a deeper level.
-      by.clear();rows=byDepth.map((ids,i)=>{
+      splitGroups=true;by.clear();rows=byDepth.map((ids,i)=>{
         const groups=[];
         for(const id of ids){const p=people.find(p=>p.id===id),key=i+'|'+dept(p);if(!by.has(key)){by.set(key,[]);groups.push(key)}by.get(key).push(p)}
         return groups;
@@ -207,24 +208,54 @@ function groupPositions(people,mode,h,edges,viewport,collapsed){
     row.forEach((name,i)=>{
       const x=(i+(max-row.length)/2)*dx;
       const members=by.get(name);const gh=groupHeight(name);
-      groups.push({name:dept(members[0]),x,y,w:width,h:gh,members:members.map(p=>p.id)});
+      groups.push({key:(splitGroups?'rank:':'dept:')+name,name:dept(members[0]),x,y,w:width,h:gh,members:members.map(p=>p.id)});
       members.forEach((p,j)=>positions[p.id]={x:x+16,y:y+43+j*(h+12)});
       rh=Math.max(rh,gh);
     });y+=rh+gapY;
   }
   return {positions,groups};
 }
+function placeOrgGroup(group,nodes,view,defaults,h){
+  const editing=view.layoutMode!=='auto';
+  const saved=editing?view.orgGroups?.[group.key]:null;
+  if(Number.isFinite(saved?.x)&&Number.isFinite(saved?.y)){
+    group.x=saved.x;
+    group.y=saved.y;
+  }
+  const members=group.members;
+  if(Array.isArray(saved?.order)){
+    const current=new Set(members);
+    group.members=[...new Set([...saved.order.filter(id=>current.has(id)),...members])];
+  }else if(editing&&view.positions){
+    // Older views stored absolute card coordinates. Keep their order inside the fixed frame.
+    const y=id=>view.positions[id]?.y??defaults[id].y;
+    group.members=[...members].sort((a,b)=>y(a)-y(b));
+  }
+  group.h=group.collapsed?39:57+group.members.length*h+(group.members.length-1)*12;
+  group.members.forEach((id,index)=>{
+    const node=nodes.get(id);
+    node.x=group.x+16;
+    node.y=group.y+43+index*(h+12);
+  });
+}
 export function layout(people,edges,mode,view,viewport){
   const grouped=mode==='org'||mode==='influence';const h=mode==='org'?(viewport?(viewport.orderByManager?90:98):76):mode==='influence'?(viewport?137:125):144;
   const collapsed=new Set(view.collapsed||[]);
-  const layout=grouped?groupPositions(people,mode,h,edges,viewport,collapsed):{positions:processPositions(people,edges,h,viewport),groups:[]};
-  const nodes=new Map();const inherited=view.layoutMode==='auto'?{}:view.positions||{};
+  // Free layout reserves each department's space when the header is collapsed.
+  const layoutCollapsed=mode==='org'&&view.layoutMode==='free'?new Set():collapsed;
+  const layout=grouped?groupPositions(people,mode,h,edges,viewport,layoutCollapsed):{positions:processPositions(people,edges,h,viewport),groups:[]};
+  const nodes=new Map();const inherited=mode==='org'||view.layoutMode==='auto'?{}:view.positions||{};
   for(const p of people){const xy=inherited[p.id]??layout.positions[p.id];nodes.set(p.id,{...xy,w:W,h,p})}
   for(const g of layout.groups){
-    const boxes=g.members.map(id=>nodes.get(id));const left=Math.min(...boxes.map(n=>n.x))-16,top=Math.min(...boxes.map(n=>n.y))-43;
-    g.x=left;g.y=top;g.w=Math.max(...boxes.map(n=>n.x+n.w))-left+16;
-    g.collapsed=mode==='org'&&collapsed.has(g.name);g.h=g.collapsed?39:Math.max(...boxes.map(n=>n.y+n.h))-top+14;
-    for(const n of boxes){n.group=g;n.hidden=g.collapsed}
+    g.collapsed=mode==='org'&&collapsed.has(g.name);
+    if(mode==='org')placeOrgGroup(g,nodes,view,layout.positions,h);
+    else{
+      const boxes=g.members.map(id=>nodes.get(id));
+      const left=Math.min(...boxes.map(n=>n.x))-16,top=Math.min(...boxes.map(n=>n.y))-43;
+      g.x=left;g.y=top;g.w=Math.max(...boxes.map(n=>n.x+n.w))-left+16;
+      g.h=Math.max(...boxes.map(n=>n.y+n.h))-top+14;
+    }
+    for(const id of g.members){const node=nodes.get(id);node.group=g;node.hidden=g.collapsed}
   }
   const boxes=[...layout.groups,...[...nodes.values()].filter(n=>!n.hidden)];
   const bounds=boxes.length?{x:Math.min(...boxes.map(n=>n.x)),y:Math.min(...boxes.map(n=>n.y)),r:Math.max(...boxes.map(n=>n.x+n.w)),b:Math.max(...boxes.map(n=>n.y+n.h))}:{x:0,y:0,r:W,b:h};
