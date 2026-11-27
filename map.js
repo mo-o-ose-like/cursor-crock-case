@@ -4,7 +4,7 @@ import {caseForModel,inferProposal} from './local-model.js';
 import {askGroq} from './groq-chat.js';
 import {sourceText} from './source-text.js';
 import {loadDesigns,saveDesign,restoreDesign,deleteDesign,dealChanges,changeDetails,designList} from './saved-designs.js';
-import {departmentPair,edgeArt,edgeLegend} from './edge-art.js';
+import {departmentPair,edgeArt,edgeLegend,matchesInfluenceEvidence} from './edge-art.js';
 import {boardSpace,frameBoard,frameObjects,wasAutomatic} from './board-camera.js';
 import {edgeId,recordDiff,applyRecordDiff,viewEdit,historyFor,remember,restoreView} from './map-history.js';
 import {departmentRelationCard,editRelation,relationCard,pairKey} from './relations.js';
@@ -14,7 +14,7 @@ import {terms,marked,highlightPanel,searchHits,resultList,filterPerson} from './
 import {esc,icon,brand,eyes,button} from './components.js';
 import {dealRecord,saveRecord,getView,saveView} from './data.js';
 import {stages} from './sample-network.js';
-import {modes,scenarios,layout,risksFor,directInfluenceEdges} from './map-layout.js';
+import {modes,scenarios,layout,risksFor,directInfluenceEdges,hasDepartments} from './map-layout.js';
 import {attitudeTone} from './participant-status.js';
 import {avatar,chip,inspector,editParticipant,handlePanel,labelRole,roleName} from './person-panel.js';
 import {knowledgeGaps} from './knowledge-gaps.js';
@@ -35,7 +35,7 @@ function sideNav(mode,id){
 function toolBar(mode,v){
   const process=mode==='process';
   const fCount=Object.values(v.filters||{}).filter(Boolean).length;
-  return `<div class="map-toolbar"><label class="map-search">${icon('search',17)}<input type="search" id="map-search" placeholder="${mode==='org'?'Поиск по сотрудникам и отделам…':'Поиск по участникам и сведениям…'}" aria-label="Поиск по карте" value="${esc(v.query||'')}"></label><div class="tool-scroll">${control('filters','filter','Фильтры'+(fCount?' · '+fCount:''),!!fCount)}${process?control('risks','warning','Подсветить риски',!!v.risks,'risk-tool')+control('unknown','help','Чего не знаем',false,'unknown-tool'):''}</div></div>`;
+  return `<div class="map-toolbar"><label class="map-search">${icon('search',17)}<input type="search" id="map-search" placeholder="${hasDepartments(mode)?'Поиск по участникам и отделам…':'Поиск по участникам и сведениям…'}" aria-label="Поиск по карте" value="${esc(v.query||'')}"></label><div class="tool-scroll">${control('filters','filter','Фильтры'+(fCount?' · '+fCount:''),!!fCount)}${process?control('risks','warning','Подсветить риски',!!v.risks,'risk-tool')+control('unknown','help','Чего не знаем',false,'unknown-tool'):''}</div></div>`;
 }
 function card(n,mode,v,matching,tokens,neighbor,ghost,stale=false){
   const mark=value=>marked(value,tokens);
@@ -69,6 +69,7 @@ export function mountMap({id,root,go,signal,search}){
   let designs=loadDesigns(id),activeDesign=null,differences=[],stalePeople=new Set(),staleEdges=new Set();
   let comparedRecord=null,comparedDesign=null;
   let advice=null,removedCount=0,chatOpen=false,edgeIndex=-1,edgeEditing=false,edgeStart=null,ghostId=null,edgePoint=null;
+  const dismissedSearchGroups=new Set();
   const state=getView(id);if(!modes[state.mode])state.mode='process';
   for(const view of Object.values(state.views||{}))for(const branch of Object.values(view.branches||{}))for(const message of branch.messages||[]){
     if(message.ai&&message.status==='pending'){message.status='error';message.error='Запрос прерван при закрытии страницы. Отправьте вопрос ещё раз.';}
@@ -173,6 +174,7 @@ export function mountMap({id,root,go,signal,search}){
   function selectMode(key,person,reset=false){
     if(!modes[key])return;
     resetFinding();
+    dismissedSearchGroups.clear();
     mode=key;state.mode=key;state.views??={};v=state.views[key]??=freshMode();
     v.layoutMode??=Object.keys(v.positions||{}).length?'free':'auto';v.positions??={};v.sections??={};v.filters??={};
     chatOpen=mode==='scenario'&&!!v.assistantEnabled&&!person;edgeEditing=false;edgeStart=null;edgeIndex=-1;ghostId=person||null;edgePoint=null;
@@ -256,7 +258,11 @@ export function mountMap({id,root,go,signal,search}){
     const s=$('#surface');return {...boardSpace(s.clientWidth||800,s.clientHeight||560,mode==='scenario'),orderByManager:true};
   }
   function arrange(){
-    const groups=new Set(graph.people.filter(p=>matchedIds.has(p.id)||p.id===ghostId).map(p=>p.dept||'Подразделение не указано'));
+    const groups=new Set();
+    for(const person of graph.people){
+      const name=person.dept||'Подразделение не указано';
+      if(person.id===ghostId||matchedIds.has(person.id)&&!dismissedSearchGroups.has(name))groups.add(name);
+    }
     const options={...v,collapsed:(v.collapsed||[]).filter(g=>!groups.has(g))};
     const s=$('#surface'),space=usableSpace();
     if(v.camera&&!v.cameraMode){
@@ -274,21 +280,25 @@ export function mountMap({id,root,go,signal,search}){
       for(const n of model.nodes.values())if(!ids.has(n.p.id))n.hidden=true;
     }
   }
+  function showEdge(edge){
+    return mode!=='influence'||edgeEditing||matchesInfluenceEvidence(edge,v.filters.linkEvidence);
+  }
   function drawWorld(){
     clearPreview();
     syncFindingVisibility();
     const tokens=terms(v.query);
     const matching=new Map(graph.people.map(p=>[p.id,tokens.length?matchedIds.has(p.id):filterPerson(p,v.filters)]));
-    const frames=model.groups.map(g=>`<div class="dept-frame ${mode==='influence'?'influence-group':''}" style="${xy(g)}"${mode==='org'?` data-org-group="${esc(g.key)}"`:''}></div>`).join('');
-    const labels=model.groups.map(g=>mode==='org'?`<button class="dept-label" style="left:${g.x}px;top:${g.y}px;width:${g.w}px" data-collapse="${esc(g.name)}" data-org-group="${esc(g.key)}" aria-expanded="${!g.collapsed}">${icon('building',15)}<strong title="${esc(g.name)}">${marked(g.name,tokens)}</strong><span>${g.members.length}</span>${icon(g.collapsed?'chevron':'down',14)}</button>`:`<div class="dept-label static" style="left:${g.x}px;top:${g.y}px;width:${g.w}px">${icon('building',15)}<strong title="${esc(g.name)}">${marked(g.name,tokens)}</strong></div>`).join('');
-    const neighbors=new Set(graph.edges.filter(e=>e.a===v.selected||e.b===v.selected).flatMap(e=>[e.a,e.b]));
+    const frames=model.groups.map(g=>`<div class="dept-frame" style="${xy(g)}" data-dept-group="${esc(g.key)}"></div>`).join('');
+    const labels=model.groups.map(g=>`<button type="button" class="dept-label" style="left:${g.x}px;top:${g.y}px;width:${g.w}px" data-collapse="${esc(g.name)}" data-dept-group="${esc(g.key)}" aria-expanded="${!g.collapsed}">${icon('building',15)}<strong title="${esc(g.name)}">${marked(g.name,tokens)}</strong><span>${g.members.length}</span>${icon(g.collapsed?'chevron':'down',14)}</button>`).join('');
+    const visibleLinks=graph.edges.filter(showEdge);
+    const neighbors=new Set(visibleLinks.filter(e=>e.a===v.selected||e.b===v.selected).flatMap(e=>[e.a,e.b]));
     neighbors.delete(v.selected);
-    const lines=edgeArt(graph.edges,model,mode,v.selected,matching,staleEdges);
+    const lines=edgeArt(graph.edges,model,mode,v.selected,matching,staleEdges,showEdge);
     $('#world').innerHTML=frames+lines+labels+[...model.nodes.values()].filter(n=>!n.hidden).map(n=>card(n,mode,v,matching.get(n.p.id),tokens,neighbors.has(n.p.id),ghostReason(n.p),stalePeople.has(n.p.id))).join('');
     $('#surface').classList.toggle('free-layout',v.layoutMode==='free'&&!edgeEditing);
-    const filtered=v.query||Object.values(v.filters||{}).some(Boolean);
+    const filtered=v.query||Object.entries(v.filters).some(([key,value])=>key!=='linkEvidence'&&value);
     const total=[...matching.values()].filter(Boolean).length;
-    $('#empty-map').innerHTML=!graph.people.length?`<div class="board-empty">${eyes()}<h2>Пока нет участников</h2><p>Добавьте сотрудника, чтобы начать строить карту.</p>${mode!=='scenario'?button('Добавить участника',{action:'add-person',leading:'plus'}):'<button data-mode="process" class="btn secondary">К процессу закупки</button>'}</div>`:filtered?`<div class="match-count" role="status">Найдено: ${total} из ${graph.people.length}${tokens.length?'<button data-map="results">Результаты</button><button data-map="clear-search">Очистить поиск</button>':'<button data-map="clear-filters">Сбросить</button>'}</div>`:'';
+    $('#empty-map').innerHTML=!graph.people.length?`<div class="board-empty">${eyes()}<h2>Пока нет участников</h2><p>Добавьте сотрудника, чтобы начать строить карту.</p>${mode!=='scenario'?button('Добавить участника',{action:'add-person',leading:'plus'}):'<button data-mode="process" class="btn secondary">К процессу закупки</button>'}</div>`:filtered?`<div class="match-count" role="status">Найдено: ${total} из ${graph.people.length}${tokens.length?'<button data-map="results">Результаты</button><button data-map="clear-search">Очистить поиск</button>':'<button data-map="clear-filters">Сбросить</button>'}</div>`:mode==='influence'&&v.filters.linkEvidence&&!edgeEditing&&!visibleLinks.length?'<div class="match-count" role="status">Нет связей выбранного типа<button data-map="clear-filters">Сбросить</button></div>':'';
     if(mode==='scenario')$('.scenario-result').textContent=graph.message;
     paintFinding();
     transform();
@@ -519,23 +529,25 @@ export function mountMap({id,root,go,signal,search}){
   function filterContent(){
     const f=v.filters||{},all=[['','Все']];
     let fields='';
-    if(mode==='org')fields+=select('Подразделение','dept',[...all,...new Set(record.people.map(p=>p.dept).filter(Boolean))],f.dept)+select('Уровень иерархии','level',[...all,...new Set(record.people.map(p=>p.level).filter(Boolean))],f.level)+select('Участие в сделке','state',[...all,...Object.entries(states)],f.state);
+    if(hasDepartments(mode))fields+=select('Подразделение','dept',[...all,...new Set(graph.people.map(p=>p.dept).filter(Boolean))],f.dept);
+    if(mode==='org')fields+=select('Уровень иерархии','level',[...all,...new Set(record.people.map(p=>p.level).filter(Boolean))],f.level)+select('Участие в сделке','state',[...all,...Object.entries(states)],f.state);
     else fields+=select('Этап закупки','stage',[...all,...stages],f.stage);
+    if(mode==='influence')fields+=select('Связи на карте','linkEvidence',[['','Все связи'],['confirmed','Подтверждённые'],['assumed','Гипотезы']],f.linkEvidence);
     if(mode==='process')fields+=`<label class="checkline"><input type="checkbox" name="highlight" ${v.highlight?'checked':''}>Выделить ЛПР</label>`;
     return `<form class="pop-form" id="map-filters">${fields}<div class="pop-footer"><button type="button" class="text-act" data-map="clear-filters">Сбросить</button>${submit('Применить')}</div></form>`;
   }
   function departmentDetails(edge){
-    const pair=mode==='org'&&departmentPair(edge,model);
+    const pair=hasDepartments(mode)&&departmentPair(edge,model);
     if(!pair)return null;
     const links=[];
     graph.edges.forEach((candidate,index)=>{
-      const other=departmentPair(candidate,model);
+      const other=showEdge(candidate)&&departmentPair(candidate,model);
       if(other?.from===pair.from&&other.to===pair.to)links.push({edge:candidate,index});
     });
     return {...pair,links};
   }
   function edgeCard(edge,preview,details=departmentDetails(edge)){
-    return details?departmentRelationCard(details,model,preview):relationCard(edge,mode,graph.people,preview,advice?.items);
+    return details?departmentRelationCard(details,model,preview,mode,graph.people):relationCard(edge,mode,graph.people,preview,advice?.items);
   }
   function drawPopover(){
     const trigger=$('[data-map="unknown"]');
@@ -552,7 +564,7 @@ export function mountMap({id,root,go,signal,search}){
     }
     if(pop==='layout'){
       const row=(key,title,detail,chosen)=>`<button class="layout-row" data-map="${key}" aria-pressed="${chosen}"><span><b>${title}</b><small>${detail}</small></span><i>${chosen?'✓':''}</i></button>`;
-      el.innerHTML='<section class="map-popover layout-pop"><div class="pop-head"><h2>Управление картой</h2>'+iconControl('close-pop','close','Закрыть')+'</div>'+row('auto','Упорядочить карту','Автоматическая раскладка и вписывание в экран',v.layoutMode==='auto')+row('free','Свободное расположение',mode==='org'?'Перетаскивать отделы за заголовок и менять порядок карточек внутри':'Перемещать карточки вручную',v.layoutMode==='free')+row('edge-edit','Редактирование связей','Добавить, перенаправить или удалить стрелку',edgeEditing)+'</section>';return;
+      el.innerHTML='<section class="map-popover layout-pop"><div class="pop-head"><h2>Управление картой</h2>'+iconControl('close-pop','close','Закрыть')+'</div>'+row('auto','Упорядочить карту','Автоматическая раскладка и вписывание в экран',v.layoutMode==='auto')+row('free','Свободное расположение',hasDepartments(mode)?'Перетаскивать отделы за заголовок и менять порядок карточек внутри':'Перемещать карточки вручную',v.layoutMode==='free')+row('edge-edit','Редактирование связей','Добавить, перенаправить или удалить стрелку',edgeEditing)+'</section>';return;
     }
 
     if(pop==='results'){
@@ -660,6 +672,7 @@ export function mountMap({id,root,go,signal,search}){
     pick(hit.pid);scrollHit(hit);
   }
   function searchInput(value){
+    dismissedSearchGroups.clear();
     v.query=value;buildGraph();
     pop=terms(value).length?'results':'';
     if(matchedIds.size===1&&hits[0].mode===mode){
@@ -684,9 +697,9 @@ export function mountMap({id,root,go,signal,search}){
     const b=e.target.closest('button');
     if(!b){if(pop&&e.target.id!=='map-search'&&!e.target.closest('#map-pop')){pop='';drawPopover()}return}
     if(b.disabled)return;
-    if(b.dataset.orgEdgeEdit!==undefined){
-      const edge=graph.edges[Number(b.dataset.orgEdgeEdit)];
-      if(mode==='org'&&edge)changeEdge(edge);
+    if(b.dataset.departmentEdgeEdit!==undefined){
+      const edge=graph.edges[Number(b.dataset.departmentEdgeEdit)];
+      if(hasDepartments(mode)&&edge)changeEdge(edge);
       return;
     }
     if(mode==='scenario'&&chatOpen&&['risk','hypothesis','advice'].includes(b.dataset.insightKind)){
@@ -726,7 +739,19 @@ export function mountMap({id,root,go,signal,search}){
       if(edgeEditing){if(!edgeStart){edgeStart=pid;v.selected=pid;refresh();return}if(edgeStart!==pid)changeEdge(null,edgeStart,pid);return}
       pick(pid);return
     }
-    if(b.hasAttribute('data-collapse')){const k=b.dataset.collapse;v.collapsed=(v.collapsed||[]).includes(k)?v.collapsed.filter(x=>x!==k):[...(v.collapsed||[]),k];refresh();save();return}
+    if(b.hasAttribute('data-collapse')){
+      const name=b.dataset.collapse,closing=b.getAttribute('aria-expanded')==='true';
+      v.collapsed=(v.collapsed||[]).filter(value=>value!==name);
+      if(closing){
+        v.collapsed.push(name);dismissedSearchGroups.add(name);
+        if(model.nodes.get(v.selected)?.group?.name===name)v.selected=null;
+        if(model.nodes.get(ghostId)?.group?.name===name)ghostId=null;
+        if(model.nodes.get(edgeStart)?.group?.name===name)edgeStart=null;
+      }else dismissedSearchGroups.delete(name);
+      refresh();save();
+      if(e.detail===0)$(`.dept-label[data-dept-group="${CSS.escape(b.dataset.deptGroup)}"]`)?.focus({preventScroll:true});
+      return;
+    }
     if(b.dataset.section){toggleSection(b);return}
     if(b.dataset.action==='add-person'){edit(null,b.dataset.gapNew);return}
     if(mode==='process'&&b.dataset.observation){
@@ -828,14 +853,14 @@ export function mountMap({id,root,go,signal,search}){
     const surface=e.target.closest('#surface');
     if(!surface||!e.isPrimary||e.button!==0||e.target.closest('#empty-map button,[data-edge-index]'))return;
     const pid=e.target.closest('[data-node]')?.dataset.node;
-    const groupKey=e.target.closest('[data-org-group]')?.dataset.orgGroup;
+    const groupKey=e.target.closest('[data-dept-group]')?.dataset.deptGroup;
     if((pid||groupKey)&&(v.layoutMode!=='free'||edgeEditing))return;
     const node=pid?model.nodes.get(pid):null;
     const group=groupKey?model.groups.find(g=>g.key===groupKey):node?.group;
-    if(pid&&mode==='org'&&group.members.length<2)return;
+    if(pid&&group&&group.members.length<2)return;
     const origin=node||group||v.camera;
     const drag={before:pid||groupKey?viewEdit(v):null,id:e.pointerId,x:e.clientX,y:e.clientY,pid,groupKey,start:{x:origin.x,y:origin.y},moved:false};
-    if(pid&&mode==='org'){
+    if(pid&&group){
       const [first,second]=group.members;
       const top=model.nodes.get(first).y;
       const index=group.members.indexOf(pid);
@@ -914,12 +939,13 @@ export function mountMap({id,root,go,signal,search}){
   },{signal});
   function markEnds(edge,active,departments){
     if(departments){
-      for(const frame of root.querySelectorAll('.dept-frame[data-org-group]')){
-        if(frame.dataset.orgGroup===departments.from.key||frame.dataset.orgGroup===departments.to.key)frame.classList.toggle('edge-endpoint',active);
+      for(const frame of root.querySelectorAll('.dept-frame[data-dept-group]')){
+        if(frame.dataset.deptGroup===departments.from.key||frame.dataset.deptGroup===departments.to.key)frame.classList.toggle('edge-endpoint',active);
       }
-      return;
+      if(mode==='org')return;
     }
-    for(const node of root.querySelectorAll('[data-node]'))if(node.dataset.node===edge.a||node.dataset.node===edge.b)node.classList.toggle('edge-endpoint',active);
+    const ids=new Set((departments?.links.map(link=>link.edge)??[edge]).flatMap(link=>[link.a,link.b]));
+    for(const node of root.querySelectorAll('[data-node]'))if(ids.has(node.dataset.node))node.classList.toggle('edge-endpoint',active);
     for(const group of root.querySelectorAll('[data-collapse]'))if([edge.a,edge.b].some(id=>model.nodes.get(id)?.hidden&&model.nodes.get(id)?.group.name===group.dataset.collapse))group.classList.toggle('edge-endpoint',active);
   }
   function clearPreview(){

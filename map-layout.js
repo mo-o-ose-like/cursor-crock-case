@@ -3,6 +3,7 @@ import {projectEvents} from './simulation.js';
 import {filterPerson,searchPerson,terms} from './map-search.js';
 
 export const modes={process:'Процесс закупки',org:'Оргструктура',influence:'Влияние',scenario:'What if'};
+export const hasDepartments=mode=>mode==='org'||mode==='influence';
 // Influence links are direct observations. A two-step chain never creates a
 // third inferred link between its endpoints.
 export function directInfluenceEdges(edges,people=[]){
@@ -177,9 +178,10 @@ function groupPositions(people,mode,h,edges,viewport,collapsed){
         return groups;
       });
     }
-  }
-  const positions={},groups=[];const width=W+32,dx=width+(viewport?28:44),gapY=viewport?34:68;
-  const groupHeight=k=>viewport&&mode==='org'&&collapsed.has(dept(by.get(k)[0]))?39:48+by.get(k).length*(h+12);
+  }else for(const members of by.values())members.sort((a,b)=>Number(!!b.decision)-Number(!!a.decision)||Number(!!b.primary)-Number(!!a.primary));
+  const positions={},groups=[];const width=W+32;
+  const dx=width+(mode==='influence'?48:viewport?28:44),gapY=mode==='influence'?46:viewport?34:68;
+  const groupHeight=k=>viewport&&collapsed.has(dept(by.get(k)[0]))?39:48+by.get(k).length*(h+12);
   if(viewport&&by.size){
     const keyGroups=new Set(people.filter(p=>p.primary||p.decision).map(dept));
     const ranks=mode==='org'?rows:[[...by.keys()].sort((a,b)=>Number(b===first)-Number(a===first)||Number(keyGroups.has(b))-Number(keyGroups.has(a)))];
@@ -193,7 +195,7 @@ function groupPositions(people,mode,h,edges,viewport,collapsed){
       const maxCols=Math.max(...trial.map(r=>r.length));
       for(const r of trial){
         r.forEach((k,i)=>by.get(k).forEach((p,j)=>{
-          if((p.primary||p.decision)&&!(mode==='org'&&collapsed.has(dept(p))))keyLocations.push({x:(i+(maxCols-r.length)/2)*dx+16,y:y+43+j*(h+12)});
+          if((p.primary||p.decision)&&!collapsed.has(dept(p)))keyLocations.push({x:(i+(maxCols-r.length)/2)*dx+16,y:y+43+j*(h+12)});
         }));
         y+=Math.max(...r.map(groupHeight))+gapY;
       }
@@ -215,7 +217,7 @@ function groupPositions(people,mode,h,edges,viewport,collapsed){
   }
   return {positions,groups};
 }
-function placeOrgGroup(group,nodes,view,defaults,h){
+function placeDepartment(group,nodes,view,defaults,h){
   const editing=view.layoutMode!=='auto';
   const saved=editing?view.orgGroups?.[group.key]:null;
   if(Number.isFinite(saved?.x)&&Number.isFinite(saved?.y)){
@@ -239,22 +241,16 @@ function placeOrgGroup(group,nodes,view,defaults,h){
   });
 }
 export function layout(people,edges,mode,view,viewport){
-  const grouped=mode==='org'||mode==='influence';const h=mode==='org'?(viewport?(viewport.orderByManager?90:98):76):mode==='influence'?(viewport?137:125):144;
+  const grouped=hasDepartments(mode);const h=mode==='org'?(viewport?(viewport.orderByManager?90:98):76):mode==='influence'?(viewport?137:125):144;
   const collapsed=new Set(view.collapsed||[]);
   // Free layout reserves each department's space when the header is collapsed.
-  const layoutCollapsed=mode==='org'&&view.layoutMode==='free'?new Set():collapsed;
+  const layoutCollapsed=grouped&&view.layoutMode==='free'?new Set():collapsed;
   const layout=grouped?groupPositions(people,mode,h,edges,viewport,layoutCollapsed):{positions:processPositions(people,edges,h,viewport),groups:[]};
-  const nodes=new Map();const inherited=mode==='org'||view.layoutMode==='auto'?{}:view.positions||{};
+  const nodes=new Map();const inherited=grouped||view.layoutMode==='auto'?{}:view.positions||{};
   for(const p of people){const xy=inherited[p.id]??layout.positions[p.id];nodes.set(p.id,{...xy,w:W,h,p})}
   for(const g of layout.groups){
-    g.collapsed=mode==='org'&&collapsed.has(g.name);
-    if(mode==='org')placeOrgGroup(g,nodes,view,layout.positions,h);
-    else{
-      const boxes=g.members.map(id=>nodes.get(id));
-      const left=Math.min(...boxes.map(n=>n.x))-16,top=Math.min(...boxes.map(n=>n.y))-43;
-      g.x=left;g.y=top;g.w=Math.max(...boxes.map(n=>n.x+n.w))-left+16;
-      g.h=Math.max(...boxes.map(n=>n.y+n.h))-top+14;
-    }
+    g.collapsed=collapsed.has(g.name);
+    placeDepartment(g,nodes,view,layout.positions,h);
     for(const id of g.members){const node=nodes.get(id);node.group=g;node.hidden=g.collapsed}
   }
   const boxes=[...layout.groups,...[...nodes.values()].filter(n=>!n.hidden)];
