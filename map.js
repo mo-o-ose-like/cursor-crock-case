@@ -1,3 +1,4 @@
+import {createPath,pathShell} from './deal-path.js';
 import {openObservation,applyObservation} from './observations.js';
 import {drawMapLearning, mapLearningState, nextMapLearning} from './learning-builder.js';
 import {caseForModel,inferProposal} from './local-model.js';
@@ -171,6 +172,22 @@ export function mountMap({id,root,go,signal,search}){
     }
     modal('Изменения в сделке',changeDetails(differences));
   }
+  const journey=createPath({id,root,signal,getRecord:()=>record,getView:()=>v,saveView:save,
+    refresh(next){record=next;savedRecord=structuredClone(next);refresh()},
+    selectPerson:selectPathProfile,addPerson:()=>edit(null),
+    showGaps(events,openEvent){
+      const eventRows=events.map(e=>'<button type="button" data-gap-event="'+esc(e.id)+'"><strong>'+esc(e.title)+'</strong><span>'+esc(e.uncertainty)+'</span></button>').join('');
+      const existing=gapList();
+      const dialog=modal('Чего не знаем',(eventRows?'<div class="hit-list gap-list">'+eventRows+'</div>':'')+(eventRows&&existing.startsWith('<p>')?'':existing));
+      dialog.addEventListener('click',event=>{
+        const b=event.target.closest('button');if(!b)return;
+        if(b.dataset.gapEvent){dialog.close();openEvent(b.dataset.gapEvent)}
+        else if(b.dataset.gapPerson){dialog.close();openGap(b)}
+        else if(b.dataset.map==='gap-budget'){dialog.close();go('settings/'+id+'/budget')}
+        else if(b.dataset.action==='add-person'){dialog.close();edit(null,b.dataset.gapNew)}
+      });
+    }
+  });
   function selectMode(key,person,reset=false){
     if(!modes[key])return;
     resetFinding();
@@ -179,6 +196,7 @@ export function mountMap({id,root,go,signal,search}){
     v.layoutMode??=Object.keys(v.positions||{}).length?'free':'auto';v.positions??={};v.sections??={};v.filters??={};
     chatOpen=mode==='scenario'&&!!v.assistantEnabled&&!person;edgeEditing=false;edgeStart=null;edgeIndex=-1;ghostId=person||null;edgePoint=null;
     if(person){
+      if(mode==='process')delete v.pathOwner;
       v.selected=person;
       if(reset){v.filters={};v.query=''}
       if(mode==='org'&&!v.sections[person])v.sections[person]=['formal'];
@@ -219,6 +237,10 @@ export function mountMap({id,root,go,signal,search}){
   }
   function mount(){
     document.title=modes[mode]+' · '+record.deal.title+' — Cursor';
+    if(mode==='process'){
+      pathScrollBeforeProfile=null;observer?.disconnect();clearPreview();
+      root.innerHTML=pathShell(sideNav(mode,id),record);refresh();return;
+    }
     const scenario=mode==='scenario';
     root.innerHTML=`<main class="map-app">${sideNav(mode,id)}<div class="map-work"><header id="tools">${toolBar(mode,v)}</header><div class="board-heading"><div><div class="deal-context">${esc(record.deal.company)}<span>/</span>${esc(record.deal.title)}</div><h1>${modes[mode]}</h1></div><div id="board-actions"></div>${!scenario?button('Участник',{action:'add-person',leading:'plus',variant:'secondary',cls:'add-person'}):''}</div><section id="map-learning" aria-label="Подсказки обучения" hidden></section>${scenario?`<div class="simulation"><label for="scenario">Сценарий</label><select id="scenario"><option value="">Свой сценарий</option>${Object.entries(scenarios).map(([k,[s]])=>'<option value="'+k+'" '+(v.scenario===k?'selected':'')+'>'+s+'</option>').join('')}</select><div id="design-tools" class="design-tools" role="group" aria-label="Сценарии What if"></div></div>`:''}<div class="map-content"><div id="surface" tabindex="0" role="region" aria-label="Доска участников. Стрелки перемещают карту, плюс и минус меняют масштаб."><div id="world"></div><div id="empty-map"></div></div><div id="board-assistant"></div><div id="camera-tools"></div><aside id="inspector" aria-label="Карточка участника" hidden></aside><div id="edge-preview" role="tooltip" hidden></div><div id="map-pop"></div></div>${scenario?'<div class="scenario-result" role="status"></div>':''}</div></main>`;
     if(v.selected||chatOpen){$('.map-content').classList.add('with-panel');$('#inspector').hidden=false}
@@ -298,23 +320,35 @@ export function mountMap({id,root,go,signal,search}){
     $('#surface').classList.toggle('free-layout',v.layoutMode==='free'&&!edgeEditing);
     const filtered=v.query||Object.entries(v.filters).some(([key,value])=>key!=='linkEvidence'&&value);
     const total=[...matching.values()].filter(Boolean).length;
-    $('#empty-map').innerHTML=!graph.people.length?`<div class="board-empty">${eyes()}<h2>Пока нет участников</h2><p>Добавьте сотрудника, чтобы начать строить карту.</p>${mode!=='scenario'?button('Добавить участника',{action:'add-person',leading:'plus'}):'<button data-mode="process" class="btn secondary">К процессу закупки</button>'}</div>`:filtered?`<div class="match-count" role="status">Найдено: ${total} из ${graph.people.length}${tokens.length?'<button data-map="results">Результаты</button><button data-map="clear-search">Очистить поиск</button>':'<button data-map="clear-filters">Сбросить</button>'}</div>`:mode==='influence'&&v.filters.linkEvidence&&!edgeEditing&&!visibleLinks.length?'<div class="match-count" role="status">Нет связей выбранного типа<button data-map="clear-filters">Сбросить</button></div>':'';
+    $('#empty-map').innerHTML=!graph.people.length?`<div class="board-empty">${eyes()}<h2>Пока нет участников</h2><p>Добавьте сотрудника, чтобы начать строить карту.</p>${mode!=='scenario'?button('Добавить участника',{action:'add-person',leading:'plus'}):'<button data-mode="process" class="btn secondary">К пути сделки</button>'}</div>`:filtered?`<div class="match-count" role="status">Найдено: ${total} из ${graph.people.length}${tokens.length?'<button data-map="results">Результаты</button><button data-map="clear-search">Очистить поиск</button>':'<button data-map="clear-filters">Сбросить</button>'}</div>`:mode==='influence'&&v.filters.linkEvidence&&!edgeEditing&&!visibleLinks.length?'<div class="match-count" role="status">Нет связей выбранного типа<button data-map="clear-filters">Сбросить</button></div>':'';
     if(mode==='scenario')$('.scenario-result').textContent=graph.message;
     paintFinding();
     transform();
   }
+  function historicalProfile(){
+    return mode==='process'&&v.selected&&v.pathOwner&&v.pathOwner!==id?dealRecord(v.pathOwner):null;
+  }
+  function profileSections(source){
+    if(!source)return v.sections;
+    v.pathSections??={};
+    return v.pathSections[source.deal.id]??={};
+  }
   function drawInspector(){
-    const panel=$('#inspector'),p=training&&edgeEditing?null:graph.people.find(x=>x.id===v.selected);
+    const panel=$('#inspector'),source=historicalProfile();
+    const p=training&&edgeEditing?null:(source?source.people:graph.people).find(x=>x.id===v.selected);
     const chat=mode==='scenario'&&v.assistantEnabled&&chatOpen;
     panel.hidden=!p&&!chat;$('.map-content').classList.toggle('with-panel',!panel.hidden);
     if(chat){panel.setAttribute('aria-label','Чат помощника');panel.innerHTML=chatHTML(advice,branchFor(v),p,insightKind);$('#proposal-input').value=drafts.get(draftKey())||'';$('#chat-form button[type="submit"]').disabled=branchFor(v).messages.some(m=>m.ai&&m.status==='pending');paintFinding();return}
     panel.setAttribute('aria-label','Карточка участника');
     if(p){
-      const available=Object.keys(modes).filter(key=>key!==mode&&graphIn(key).people.some(person=>person.id===p.id));
+      const available=Object.keys(modes).filter(key=>key!==mode&&(source?(!p.modes||p.modes.includes(key)):graphIn(key).people.some(person=>person.id===p.id)));
       const related=differences.filter(row=>row.ids.includes(p.id));
       const changes=related.length?'<details class="person-differences" open><summary>Изменилось в сделке</summary>'+changeDetails(related)+'</details>':'';
       const risks=mode==='scenario'&&advice?personRisksHTML(advice,p):'';
-      panel.innerHTML=inspector(p,mode,v,available,ghostReason(p),changes+risks);highlightPanel(panel,terms(v.query));
+      const profileView=source?{...v,sections:profileSections(source)}:v;
+      panel.innerHTML=inspector(p,mode,profileView,available,mode==='process'?'':ghostReason(p),changes+risks);
+      if(mode==='process')journey.profile(panel,p,source||record);
+      highlightPanel(panel,terms(v.query));
     }else panel.innerHTML='';
   }
   function drawLearning(){
@@ -335,6 +369,10 @@ export function mountMap({id,root,go,signal,search}){
     $('#board-assistant').innerHTML=(edgeEditing?'<button class="edge-mode-note" data-map="end-edge">'+(edgeStart?'Выберите второго участника':'Выберите стрелку или двух участников')+' · Готово</button>':'')+assistant+(mode==='scenario'&&removedCount?'<button class="chat-open" data-map="show-removed" aria-pressed="'+!!v.showRemoved+'">'+(v.showRemoved?'Скрыть исключённых':'Показать исключённых')+' · '+removedCount+'</button>':'');
   }
   function refresh(){
+    if(mode==='process'){
+      graph=graphIn(mode);advice=null;differences=[];
+      journey.render();drawInspector();return;
+    }
     buildGraph();drawInspector();drawControls();
     const space=usableSpace();
     if(v.cameraMode!=='manual'&&v.layoutMode!=='free'&&(layoutSpace.w!==space.w||layoutSpace.h!==space.h))arrange();
@@ -349,9 +387,10 @@ export function mountMap({id,root,go,signal,search}){
     for(const selector of ['#world','.scenario-result'])animate($(selector),[{opacity:.55},{opacity:1}],180);
   }
   function toggleSection(button){
-    const key=button.dataset.section, person=v.selected, old=v.sections[person]||[];
+    const sections=profileSections(historicalProfile());
+    const key=button.dataset.section, person=v.selected, old=sections[person]||[];
     const closing=old.includes(key), scroll=$('.inspect-scroll').scrollTop;
-    v.sections[person]=closing?old.filter(k=>k!==key):[...old,key];save();
+    sections[person]=closing?old.filter(k=>k!==key):[...old,key];save();
     function redraw(){
       drawInspector();$('.inspect-scroll').scrollTop=scroll;
       const current=$('#inspector').querySelector?.('[data-section="'+key+'"]');
@@ -364,7 +403,7 @@ export function mountMap({id,root,go,signal,search}){
       const transition=animate(content,[{height:content?.offsetHeight+'px',opacity:1},{height:'0px',opacity:0}]);
       if(transition){
         content.style.overflow='hidden';content.inert=true;
-        transition.onfinish=()=>{if(button.isConnected&&v.selected===person&&!v.sections[person]?.includes(key))redraw()};
+        transition.onfinish=()=>{if(button.isConnected&&v.selected===person&&!sections[person]?.includes(key))redraw()};
       }else redraw();
     }else{
       const content=redraw();
@@ -381,6 +420,7 @@ export function mountMap({id,root,go,signal,search}){
     v.cameraMode='manual';v.layoutViewport=layoutSpace||usableSpace();
   }
   function centerTargets(ids,pairs){
+    if(mode==='process')return false;
     const boxes=ids.map(id=>model.nodes.get(id)).filter(n=>n&&!n.hidden);
     for(const [a,b] of pairs){
       const j=graph.edges.findIndex(e=>e.a===a&&e.b===b);
@@ -480,6 +520,7 @@ export function mountMap({id,root,go,signal,search}){
     const z=clamp(c.z*factor,Math.min(.22,frameBoard(model,usableSpace(),graph.edges,null,true).z),2.5);const ratio=z/c.z;v.camera={x:px-(px-c.x)*ratio,y:py-(py-c.y)*ratio,z};transform();save();
   }
   function reveal(pid){
+    if(mode==='process')return;
     const n=model.nodes.get(pid);if(!n)return;
     const s=$('#surface'),c=v.camera,w=s.clientWidth,h=s.clientHeight;
     if(n.x*c.z+c.x<0||(n.x+n.w)*c.z+c.x>w||n.y*c.z+c.y<0||(n.y+n.h)*c.z+c.y>h){
@@ -667,7 +708,9 @@ export function mountMap({id,root,go,signal,search}){
   function openHit(hit){
     if(!hit)return;
     if(hit.mode!==mode){
-      const query=v.query;selectMode(hit.mode,hit.pid,true);v.query=query;$('#map-search').value=query;buildGraph();
+      const query=v.query;selectMode(hit.mode,hit.pid,true);
+      if(mode==='process'){v.sections[hit.pid]=[...new Set([...(v.sections[hit.pid]||[]),hit.key].filter(Boolean))];pick(hit.pid);scrollHit(hit);return}
+      v.query=query;$('#map-search').value=query;buildGraph();
     }
     pick(hit.pid);scrollHit(hit);
   }
@@ -683,7 +726,58 @@ export function mountMap({id,root,go,signal,search}){
     save();
   }
 
+  let pathScrollBeforeProfile;
+  function updatePathPanel(scroll){
+    drawInspector();journey.syncSelection();journey.restoreScroll(scroll);
+  }
+  function selectPathProfile(pid,owner=id){
+    const source=owner===id?record:dealRecord(owner);
+    if(!source?.people.some(p=>p.id===pid))return;
+    const scroll=journey.boardScroll();
+    if(!v.selected)pathScrollBeforeProfile=scroll;
+    v.selected=pid;v.pathOwner=owner;
+    updatePathPanel(scroll);save();
+  }
+  function handleSourceProfile(button){
+    if(!button.closest('#inspector'))return false;
+    const source=historicalProfile(),pid=v.selected;
+    if(!source)return false;
+    const person=source.people.find(p=>p.id===pid);
+    if(!person)return false;
+    const ownerId=source.deal.id,before=structuredClone(source);
+    function persist(){
+      const latest=dealRecord(ownerId);
+      if(!latest?.people.some(p=>p.id===pid))return;
+      saveRecord(applyRecordDiff(latest,recordDiff(before,source)));refresh();
+    }
+    if(button.dataset.jump){
+      const key=button.dataset.jump,view=getView(ownerId);
+      view.mode=key;view.views??={};view.views[key]??=freshMode();view.views[key].selected=pid;
+      saveView(ownerId,view);go('map/'+ownerId);return true;
+    }
+    if(button.dataset.observation){
+      openObservation(button.dataset.observation,button.dataset.entry,person,change=>{
+        const latest=dealRecord(ownerId),target=latest?.people.find(p=>p.id===pid);
+        if(target){applyObservation(target,change);saveRecord(latest);refresh()}
+      });return true;
+    }
+    const action=button.dataset.panelAction;
+    if(!action)return false;
+    if(action==='edit'){
+      editParticipant(source,person,mode,(updated,edge)=>{
+        source.people[source.people.indexOf(person)]=updated;if(edge)source.edges.push(edge);
+        persist();notify('Участник сохранён');
+      });
+    }else if(action==='remove'){
+      modal('Удалить участника?', '<p>'+esc(person.name)+' будет удалён из сделки «'+esc(source.deal.title)+'».</p><form class="edit-form confirm-delete">'+submit('Удалить участника')+'</form>',()=>{
+        source.people=source.people.filter(p=>p.id!==pid);source.edges=source.edges.filter(e=>e.a!==pid&&e.b!==pid);
+        v.selected=null;delete v.pathOwner;persist();save();
+      });
+    }else handlePanel(action,person,persist);
+    return true;
+  }
   function pick(pid){
+    if(mode==='process'){selectPathProfile(pid);return}
     resetFinding();
     chatOpen=false;ghostId=pid;v.selected=pid;v.sections??={};if(mode==='org'&&!v.sections[pid])v.sections[pid]=['formal'];
     expandHits(pid);pop='';refresh();reveal(pid);save();
@@ -697,6 +791,7 @@ export function mountMap({id,root,go,signal,search}){
     const b=e.target.closest('button');
     if(!b){if(pop&&e.target.id!=='map-search'&&!e.target.closest('#map-pop')){pop='';drawPopover()}return}
     if(b.disabled)return;
+    if(mode==='process'&&(journey.handle(b)||handleSourceProfile(b)))return;
     if(b.dataset.departmentEdgeEdit!==undefined){
       const edge=graph.edges[Number(b.dataset.departmentEdgeEdit)];
       if(hasDepartments(mode)&&edge)changeEdge(edge);
@@ -798,7 +893,13 @@ export function mountMap({id,root,go,signal,search}){
     if(key==='clear-filters'){resetFilters();return}
     if(key==='filters'||key==='unknown'){pop=pop===key?'':key;drawPopover();return}
     if(key==='close-pop'){pop='';drawPopover();return}
-    if(key==='close-person'){v.selected=null;refresh();save();return}
+    if(key==='close-person'){
+      v.selected=null;
+      if(mode==='process'){
+        delete v.pathOwner;updatePathPanel(pathScrollBeforeProfile||journey.boardScroll());pathScrollBeforeProfile=null;
+      }else refresh();
+      save();return;
+    }
     if(key==='risks'){v.risks=!v.risks;$('#tools').innerHTML=toolBar(mode,v);drawWorld();save()}
   },{signal});
   root.addEventListener('submit',e=>{
@@ -1003,6 +1104,9 @@ export function mountMap({id,root,go,signal,search}){
   selectMode(mode);
   if(search?.hit){
     selectMode(search.hit.mode,search.hit.pid,true);
-    v.query=search.query;$('#map-search').value=v.query;buildGraph();openHit(search.hit);
+    if(mode==='process'){
+      v.sections[search.hit.pid]=[...new Set([...(v.sections[search.hit.pid]||[]),search.hit.key].filter(Boolean))];
+      pick(search.hit.pid);scrollHit(search.hit);
+    }else{v.query=search.query;$('#map-search').value=v.query;buildGraph();openHit(search.hit)}
   }
 }

@@ -48,7 +48,7 @@ const lessons = [
 ];
 
 const names = {
-  process:'Процесс закупки', org:'Оргструктура', influence:'Влияние'
+  process:'Путь сделки', org:'Оргструктура', influence:'Влияние'
 };
 
 export function mountLearning({id, root, header, signal}) {
