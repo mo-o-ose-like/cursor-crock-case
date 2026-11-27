@@ -67,6 +67,18 @@ const titles={org:'Формальное подчинение',process:'Пере�
 const progress={done:'Состоялся',established:'В процессе',planned:'Запланирован'};
 const strengths={strong:'Сильное',limited:'Ограниченное',assumed:'Не установлена'};
 
+export function departmentRelationCard({from,to,links},model,preview=false){
+  const controls=preview?'':'<button class="icon-btn" data-map="close-pop" aria-label="Закрыть">×</button>';
+  const rows=links.map(({edge,index})=>{
+    const a=model.nodes.get(edge.a).p.name,b=model.nodes.get(edge.b).p.name;
+    const names=esc(a)+' → '+esc(b);
+    return preview?'<li>'+names+'</li>'
+      :'<li><button class="text-act" type="button" data-org-edge-edit="'+index+'" aria-label="Редактировать связь: '+esc(a)+' → '+esc(b)+'">'+names+'</button></li>';
+  }).join('');
+  return '<section class="map-popover relation-pop"><div class="pop-head"><h2>Подчинение отделов</h2>'+controls+'</div>'+
+    '<p class="edge-direction">'+esc(from.name)+' → '+esc(to.name)+'</p>'+
+    '<small>Связи руководителей и сотрудников</small><ul class="department-relations">'+rows+'</ul></section>';
+}
 export function relationCard(edge,mode,people,preview=false,findings=[]){
   const item=relationData(edge,mode,people);
   const from=people.find(p=>p.id===edge.a),to=people.find(p=>p.id===edge.b);

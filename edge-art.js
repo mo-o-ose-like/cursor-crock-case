@@ -1,7 +1,7 @@
 import {esc} from './components.js';
 
 const labels = {
-  org: {formal: 'Формальное подчинение'},
+  org: {department: 'Подчинение отделов', formal: 'Формальное подчинение'},
   process: {done: 'Пройденный путь', established: 'Установленная связь', planned: 'Запланированная связь'},
   influence: {strong: 'Сильное · подтверждено', limited: 'Ограниченное · подтверждено', assumed: 'Предполагаемое · не подтверждено'},
   scenario: {current: 'Текущая связь', new: 'Предлагается добавить', remove: 'Предлагается удалить', change: 'Предлагается изменить'}
@@ -196,13 +196,130 @@ function route(a, b, f1, f2, obstacles, org, fixedSides) {
   return best;
 }
 
+const departmentSides=['bottom','top'];
+const interpolate=(a,b,t)=>({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t});
+const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const cubicTo=(first,last,end)=>' C'+coords(first)+' '+coords(last)+' '+coords(end);
+
+function cubicClear([a,b,c,d],rectangles,depth=8){
+  const left=Math.min(a.x,b.x,c.x,d.x),right=Math.max(a.x,b.x,c.x,d.x);
+  const top=Math.min(a.y,b.y,c.y,d.y),bottom=Math.max(a.y,b.y,c.y,d.y);
+  const nearby=rectangles.filter(r=>r.x<right&&r.x+r.w>left&&r.y<bottom&&r.y+r.h>top);
+  if(!nearby.length)return true;
+  if(!depth)return false;
+  // Split the Bézier until each control-point hull clears the nearby frames.
+  const ab=interpolate(a,b,.5),bc=interpolate(b,c,.5),cd=interpolate(c,d,.5);
+  const leftControl=interpolate(ab,bc,.5),rightControl=interpolate(bc,cd,.5);
+  const middle=interpolate(leftControl,rightControl,.5);
+  return cubicClear([a,ab,leftControl,middle],nearby,depth-1)&&
+    cubicClear([middle,rightControl,cd,d],nearby,depth-1);
+}
+
+function clearCubic(start,first,last,end,rectangles){
+  return cubicClear([start,first,last,end],rectangles)
+    ? {d:'M'+coords(start)+cubicTo(first,last,end),end,prev:last} : null;
+}
+
+function departmentFan(a,b,rectangles){
+  const start=port(a,departmentSides[0],0.5,4);
+  const end=port(b,departmentSides[1],0.5,4);
+  const gap=end.y-start.y;
+  if(gap<10)return null;
+  const dx=end.x-start.x;
+  const first={x:start.x+(dx ? dx*0.28 : Math.min(6,gap*0.18)),y:start.y+gap*0.22};
+  const last={x:end.x,y:end.y-gap*0.34};
+  return clearCubic(start,first,last,end,rectangles);
+}
+
+function sideCurve(a,b,from,to,rectangles){
+  const start=port(a,from,.5,4),end=port(b,to,.5,4);
+  const span=distance(start,end);
+  if(span<2)return null;
+  const reach=Math.min(96,span*.36);
+  const first=shift(start,sides[from],reach),last=shift(end,sides[to],reach);
+  const flatX=start.x===end.x&&first.x===last.x,flatY=start.y===end.y&&first.y===last.y;
+  // Keep a slight bend when the ports line up exactly.
+  if(flatX)first.x+=Math.min(9,span*.09);
+  if(flatY)first.y+=Math.min(9,span*.09);
+  return clearCubic(start,first,last,end,rectangles);
+}
+
+function curvedDepartmentDetour(points,rectangles){
+  const waypoints=[points[0]];
+  for(let i=0;i<points.length-1;){
+    let j=points.length-1;
+    // Remove right-angled doglegs where a diagonal can safely cross the gap.
+    while(j>i+1&&!cubicClear([points[i],points[i],points[j],points[j]],rectangles))j--;
+    waypoints.push(points[j]);
+    i=j;
+  }
+  if(waypoints.length===2){
+    const [start,end]=waypoints;
+    const span=distance(start,end);
+    const normal={x:(start.y-end.y)/span,y:(end.x-start.x)/span};
+    const first=interpolate(start,end,1/3),last=interpolate(start,end,2/3);
+    const bend=Math.min(6,span*.12);
+    const curved=clearCubic(start,shift(first,normal,bend),last,end,rectangles)??
+      clearCubic(start,shift(first,normal,-bend),last,end,rectangles);
+    if(curved)return curved;
+  }
+  let cursor=waypoints[0],d='M'+coords(cursor),prev;
+  function straightTo(point){
+    if(distance(cursor,point)<.05)return;
+    prev=interpolate(cursor,point,2/3);
+    d+=cubicTo(interpolate(cursor,point,1/3),prev,point);
+    cursor=point;
+  }
+  for(let i=1;i<waypoints.length-1;i++){
+    const [a,b,c]=waypoints.slice(i-1,i+2);
+    const incoming=distance(a,b),outgoing=distance(b,c);
+    let radius=Math.min(48,incoming*.44,outgoing*.44);
+    // Shrink a swept turn only as much as needed to miss a nearby frame.
+    while(radius>=.025){
+      const enter=interpolate(b,a,radius/incoming),leave=interpolate(b,c,radius/outgoing);
+      const first=interpolate(enter,b,.62),last=interpolate(leave,b,.62);
+      if(cubicClear([enter,first,last,leave],rectangles)){
+        straightTo(enter);
+        d+=cubicTo(first,last,leave);
+        cursor=leave;prev=last;
+        break;
+      }
+      radius*=.5;
+    }
+    if(radius<.025)straightTo(b);
+  }
+  const end=waypoints.at(-1);
+  straightTo(end);
+  return {d,end,prev:prev??waypoints.at(-2)};
+}
+
+function departmentCurve(a,b,departments){
+  const rectangles=departments.map(g=>{
+    const margin=g===a||g===b?2:3;
+    return {x:g.x-margin,y:g.y-margin,w:g.w+2*margin,h:g.h+2*margin};
+  });
+  const fan=departmentFan(a,b,rectangles);
+  if(fan)return fan;
+  // On stacked layouts retain the common bottom port if there is a safe detour.
+  if(a.y+a.h<b.y){
+    const centered=route(a,b,.5,.5,departments,true,departmentSides);
+    if(centered)return curvedDepartmentDetour(centered,rectangles);
+  }
+  for(const from of preferredSides(a,b,true))for(const to of preferredSides(b,a,true)){
+    const direct=sideCurve(a,b,from,to,rectangles);
+    if(direct)return direct;
+  }
+  const detour=route(a,b,.5,.5,departments,true);
+  return detour?curvedDepartmentDetour(detour,rectangles):null;
+}
+
 function sideOf(box, point) {
   if (point.x < box.x) return 'left';
   if (point.x > box.x + box.w) return 'right';
   return point.y < box.y ? 'top' : 'bottom';
 }
 
-function spaceOrgPorts(lines, obstacles) {
+function spaceOrgPorts(lines) {
   const byBox = new Map();
   for (const line of lines) {
     if (!line.points) continue;
@@ -231,7 +348,7 @@ function spaceOrgPorts(lines, obstacles) {
   for (const line of lines) {
     if (!line.ports?.some(port=>port.spread)) continue;
     const [from,to] = line.ports;
-    line.points = route(line.a,line.b,from.fraction,to.fraction,obstacles,true,[from.side,to.side]) ?? line.points;
+    line.points = route(line.a,line.b,from.fraction,to.fraction,line.obstacles,true,[from.side,to.side]) ?? line.points;
   }
 }
 
@@ -244,41 +361,63 @@ export function edgeLegend(mode) {
     '<span>' + text + '</span></div>').join('') + '</div>';
 }
 
+export function departmentPair(edge,model) {
+  const from=model.nodes.get(edge.a)?.group;
+  const to=model.nodes.get(edge.b)?.group;
+  return from&&to&&from.name!==to.name ? {from,to} : null;
+}
+
 export function edgeArt(edges, model, mode, selected, matching, staleEdges) {
   const org = mode === 'org';
   const incidents = new Map();
   const obstacles = [...model.nodes.values()].filter(n => !n.hidden);
   for (const g of model.groups) obstacles.push(g.collapsed ? g : {x:g.x,y:g.y,w:g.w,h:38});
+  const departments = new Map();
   const lines = [];
   edges.forEach((edge, index) => {
     const na = model.nodes.get(edge.a), nb = model.nodes.get(edge.b);
     if (!na || !nb) return;
-    const a = na.hidden ? na.group : na, b = nb.hidden ? nb.group : nb;
+    const pair = org && departmentPair(edge,model);
+    const a = pair?.from ?? (na.hidden ? na.group : na);
+    const b = pair?.to ?? (nb.hidden ? nb.group : nb);
     if (!a || !b || a === b) return;
+    const line = {a,b,index,links:[edge],department:!!pair,obstacles:pair?model.groups:obstacles};
+    if (pair) {
+      const key = JSON.stringify([a.key,b.key]);
+      const existing = departments.get(key);
+      if (existing) { existing.links.push(edge); return; }
+      departments.set(key,line);
+    }
+    lines.push(line);
     for (const box of [a,b]) {
       if (!incidents.has(box)) incidents.set(box, []);
       incidents.get(box).push(index);
     }
-    lines.push({edge, index, na, nb, a, b});
   });
   for (const line of lines) {
     const {a,b,index} = line;
+    if(line.department){
+      line.curve=departmentCurve(a,b,line.obstacles);
+      continue;
+    }
     line.points = route(a,b,portFraction(incidents.get(a),index),
-      portFraction(incidents.get(b),index),obstacles,org);
+      portFraction(incidents.get(b),index),line.obstacles,org);
   }
-  if (org) spaceOrgPorts(lines,obstacles);
-  const groups = lines.map(({edge, index, na, nb, points}) => {
-    if (!points) return '';
-    const d = roundedPath(points, org ? 12 : 11);
-    const type = lineType(edge, mode);
-    const label = esc(na.p.name + ' → ' + nb.p.name + '. ' + labels[mode][type]);
-    const faded = matching && !matching.get(edge.a) && !matching.get(edge.b);
-    const incident = edge.a === selected || edge.b === selected;
-    const end = points.at(-1), prev = points.at(-2);
+  if (org) spaceOrgPorts(lines);
+  const groups = lines.map(({a,b,index,links,points,department,curve}) => {
+    if (!points&&!curve) return '';
+    const d = curve?.d ?? roundedPath(points, org ? 12 : 11);
+    const type = department ? 'department' : lineType(links[0], mode);
+    const names = type === 'department' ? [a.name,b.name]
+      : [model.nodes.get(links[0].a).p.name,model.nodes.get(links[0].b).p.name];
+    const label = esc(names.join(' → ') + '. ' + labels[mode][type]);
+    const faded = matching && !links.some(edge => matching.get(edge.a) || matching.get(edge.b));
+    const incident = links.some(edge => edge.a === selected || edge.b === selected);
+    const end = curve?.end ?? points.at(-1), prev = curve?.prev ?? points.at(-2);
     const angle = Math.round(Math.atan2(end.y - prev.y, end.x - prev.x) * 180 / Math.PI);
-    const tipLength = mode === 'org' ? Math.min(7, length(prev,end)) : 7;
+    const tipLength = org && !department ? Math.min(7, length(prev,end)) : 7;
     const tipWidth = Math.min(4, tipLength * 0.6);
-    const stale=staleEdges?.has(JSON.stringify([edge.kind,edge.a,edge.b]));
+    const stale=staleEdges&&links.some(edge=>staleEdges.has(JSON.stringify([edge.kind,edge.a,edge.b])));
     return '<g class="connection edge-' + type + (stale?' stale-connection':'') + (faded ? ' edge-muted' : '') + (incident ? ' edge-incident' : '') +
       '" data-edge-index="' + index + '" role="button" tabindex="0" aria-label="' + label + '">' +
       '<path class="connection-hit" d="' + d + '"/><path class="connection-halo" d="' + d + '"/>' +
