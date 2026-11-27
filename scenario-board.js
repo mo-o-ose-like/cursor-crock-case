@@ -25,6 +25,8 @@ export function scenarioBoard(record,view,modelFor){
   projectEvents(graph,events);
   applyEdits(graph,branch.edits.filter(e=>!e.overlay));prune(graph,branch.removed);
   function describe(graph){
+    const practice=record.practiceScenarios?.[view.scenario];
+    if(practice&&events.length===(practice.events?.length||0)){graph.message=practice.description;return}
     const last=events.findLast(e=>graph.people.some(p=>p.id===e.personId));
     const actor=last&&graph.people.find(p=>p.id===last.personId);
     const changes={lost:'потеряна связь',better:'отношения улучшились',worse:'отношения ухудшились',contract:'заключён договор «'+(last?.title||'')+'»'};

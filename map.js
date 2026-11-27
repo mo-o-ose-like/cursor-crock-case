@@ -242,7 +242,12 @@ export function mountMap({id,root,go,signal,search}){
       root.innerHTML=pathShell(sideNav(mode,id),record);refresh();return;
     }
     const scenario=mode==='scenario';
-    root.innerHTML=`<main class="map-app">${sideNav(mode,id)}<div class="map-work"><header id="tools">${toolBar(mode,v)}</header><div class="board-heading"><div><div class="deal-context">${esc(record.deal.company)}<span>/</span>${esc(record.deal.title)}</div><h1>${modes[mode]}</h1></div><div id="board-actions"></div>${!scenario?button('Участник',{action:'add-person',leading:'plus',variant:'secondary',cls:'add-person'}):''}</div><section id="map-learning" aria-label="Подсказки обучения" hidden></section>${scenario?`<div class="simulation"><label for="scenario">Сценарий</label><select id="scenario"><option value="">Свой сценарий</option>${Object.entries(scenarios).map(([k,[s]])=>'<option value="'+k+'" '+(v.scenario===k?'selected':'')+'>'+s+'</option>').join('')}</select><div id="design-tools" class="design-tools" role="group" aria-label="Сценарии What if"></div></div>`:''}<div class="map-content"><div id="surface" tabindex="0" role="region" aria-label="Доска участников. Стрелки перемещают карту, плюс и минус меняют масштаб."><div id="world"></div><div id="empty-map"></div></div><div id="board-assistant"></div><div id="camera-tools"></div><aside id="inspector" aria-label="Карточка участника" hidden></aside><div id="edge-preview" role="tooltip" hidden></div><div id="map-pop"></div></div>${scenario?'<div class="scenario-result" role="status"></div>':''}</div></main>`;
+    const practice=record.practiceScenarios||{};
+    const scenarioOptions=[
+      ...Object.entries(practice).map(([key,p])=>[key,p.title]),
+      ...Object.entries(scenarios).filter(([key])=>key!=='lost'||!practice['contact-leaves']).map(([key,[title]])=>[key,title])
+    ];
+    root.innerHTML=`<main class="map-app">${sideNav(mode,id)}<div class="map-work"><header id="tools">${toolBar(mode,v)}</header><div class="board-heading"><div><div class="deal-context">${esc(record.deal.company)}<span>/</span>${esc(record.deal.title)}</div><h1>${modes[mode]}</h1></div><div id="board-actions"></div>${!scenario?button('Участник',{action:'add-person',leading:'plus',variant:'secondary',cls:'add-person'}):''}</div><section id="map-learning" aria-label="Подсказки обучения" hidden></section>${scenario?`<div class="simulation"><label for="scenario">Сценарий</label><select id="scenario"><option value="">Свой сценарий</option>${scenarioOptions.map(([k,s])=>'<option value="'+esc(k)+'" '+(v.scenario===k?'selected':'')+'>'+esc(s)+'</option>').join('')}</select><div id="design-tools" class="design-tools" role="group" aria-label="Сценарии What if"></div></div>`:''}<div class="map-content"><div id="surface" tabindex="0" role="region" aria-label="Доска участников. Стрелки перемещают карту, плюс и минус меняют масштаб."><div id="world"></div><div id="empty-map"></div></div><div id="board-assistant"></div><div id="camera-tools"></div><aside id="inspector" aria-label="Карточка участника" hidden></aside><div id="edge-preview" role="tooltip" hidden></div><div id="map-pop"></div></div>${scenario?'<div class="scenario-result" role="status"></div>':''}</div></main>`;
     if(v.selected||chatOpen){$('.map-content').classList.add('with-panel');$('#inspector').hidden=false}
     refresh();
     observer?.disconnect();
@@ -292,7 +297,7 @@ export function mountMap({id,root,go,signal,search}){
       v.cameraMode=wasAutomatic(v.camera,previous.bounds,s.clientWidth||800,s.clientHeight||560)?'auto':'manual';
       if(v.cameraMode==='manual'||v.layoutMode==='free')v.layoutViewport={legacy:true};
     }
-    if(!v.camera||!v.cameraMode)v.cameraMode='auto';
+    if(!v.camera||!v.cameraMode)v.cameraMode=record.deal.trainingLabel&&mode==='org'?'overview':'auto';
     const locked=v.layoutMode==='free'||v.cameraMode==='manual';
     layoutSpace=locked?(v.layoutViewport??=space):space;
     const source=scenarioLayer||graph;
@@ -915,7 +920,7 @@ export function mountMap({id,root,go,signal,search}){
       const question={id:crypto.randomUUID(),personId:v.selected,text:message,ai:true,status:'pending'};
       editView('Предложение в чате',()=>branch.messages.push(question));
       const log=$('.chat-log');log.scrollTop=log.scrollHeight;
-      askGroq({record:structuredClone(activeRecord),graph:structuredClone(base),scenario:{name:v.scenario||'base',label:scenarios[v.scenario]?.[0]||'Свой сценарий',events:eventList(v)},branch,message:question,signal,
+      askGroq({record:structuredClone(activeRecord),graph:structuredClone(base),scenario:{name:v.scenario||'base',label:record.practiceScenarios?.[v.scenario]?.title||scenarios[v.scenario]?.[0]||'Свой сценарий',events:eventList(v)},branch,message:question,signal,
         onChange:()=>{
           chatResponses.set(question.id,structuredClone(question));syncChatResponses();
           save();if(signal.aborted)return;
@@ -937,7 +942,14 @@ export function mountMap({id,root,go,signal,search}){
   },{signal});
   root.addEventListener('input',e=>{if(e.target.id==='map-search')searchInput(e.target.value);if(e.target.id==='proposal-input')drafts.set(draftKey(),e.target.value)},{signal});
   root.addEventListener('change',e=>{
-    if(e.target.id==='scenario'){resetFinding();v.scenario=e.target.value;v.comparison='after';v.showRemoved=false;v.selected=null;v.camera=null;edgeEditing=false;edgeStart=null;edgeIndex=-1;pop='';ghostId=null;refresh();animateScenario();save()}
+    if(e.target.id==='scenario'){resetFinding();v.scenario=e.target.value;
+      const practice=record.practiceScenarios?.[v.scenario];
+      if(practice&&!Object.hasOwn(v.histories||{},v.scenario)){
+        v.histories??={};v.branches??={};
+        v.histories[v.scenario]=structuredClone(practice.events||[]);
+        v.branches[v.scenario]={messages:[],removed:[...(practice.removed||[])],edits:structuredClone(practice.edits||[])};
+      }
+      v.comparison='after';v.showRemoved=false;v.selected=null;v.camera=null;edgeEditing=false;edgeStart=null;edgeIndex=-1;pop='';ghostId=null;refresh();animateScenario();save()}
     const id=e.target.dataset?.reviewFinding;
     if(id&&selectedFinding(id)?.kind==='hypothesis'&&['','confirmed','rejected'].includes(e.target.value)){
       const value=e.target.value,scroll=$('.chat-log').scrollTop;

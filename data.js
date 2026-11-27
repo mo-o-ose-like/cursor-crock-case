@@ -1,9 +1,12 @@
+import {historyFor} from './map-history.js';
+import {northernDeal,northernArchives,northernRecord} from './northern-case.js';
 import {exampleDeals,exampleRecord} from './path-examples.js';
 import {sampleNetwork,stages} from './sample-network.js';
 import {defenseDeal,defenseRecord} from './defense-demo.js';
 // Local fixtures. All people, companies and map details are illustrative.
 export const deals = [
   ...(globalThis.__CURSOR_PATH_PREVIEW__ === true ? exampleDeals : []),
+  northernDeal,
   defenseDeal,
   {id:'service',title:'Автоматизация сервис-деска',company:'АО Северный Вектор',participant:'Александр Морозов',position:'Директор по ИТ',role:'Технический эксперт',tags:['Поддерживает','ИТ-департамент'],agreement:'Согласовать технические требования',notes:'Предпочитает письменные спецификации',stage:'Техническая оценка'},
   {id:'network',title:'Модернизация сети филиалов',company:'ГК ПромАльянс',participant:'Елена Фёдорова',position:'Руководитель эксплуатации',role:'Основной контакт КРОК',tags:['Инфраструктура','Филиалы'],agreement:'Подготовить перечень площадок',notes:'Миграция по выходным',stage:'Переговоры'},
@@ -36,24 +39,40 @@ export function allDeals() {
   for(const key of keys) {
     if(!key?.startsWith(recordPrefix)) continue;
     const d=read(key)?.deal;
-    if(d && !deals.some(seed=>seed.id===d.id)) extra.push(d);
+    if(d && !northernArchives.some(seed=>seed.id===d.id) && !deals.some(seed=>seed.id===d.id)) extra.push(d);
   }
-  return [...extra.sort((a,b)=>b.created-a.created),...deals];
+  return [northernDeal,...extra.sort((a,b)=>b.created-a.created),...deals.filter(d=>d.id!==northernDeal.id)];
 }
 export function dealRecord(id) {
   const stored=read(recordPrefix+id);
   if(stored?.deal && Array.isArray(stored.people) && Array.isArray(stored.edges)) return stored;
-  const deal=deals.find(d=>d.id===id);
+  const deal=deals.find(d=>d.id===id)||northernArchives.find(d=>d.id===id);
   if(!deal) return null;
+  if(deal.trainingFamily===northernDeal.trainingFamily)return northernRecord(deal);
   if(deal.demo)return exampleRecord(deal,defaultSettings(deal));
   if(id===defenseDeal.id) return defenseRecord(deal);
   return {deal:{...deal},...sampleNetwork(deal),sources:['Демонстрационная CRM'],settings:defaultSettings(deal)};
+}
+export function comparisonRecords(record){
+  if([northernDeal,...northernArchives].some(d=>d.id===record.deal.id))
+    return [northernDeal,...northernArchives].map(d=>dealRecord(d.id));
+  return allDeals().filter(d=>d.id!==northernDeal.id).map(d=>dealRecord(d.id));
+}
+export function resetNorthernCase(id){
+  if(id!==northernDeal.id)return;
+  for(const d of [northernDeal,...northernArchives]){
+    const history=historyFor(d.id);history.undo.length=0;history.redo.length=0;
+    for(const key of [recordPrefix+d.id,viewPrefix+d.id]){
+      memory.delete(key);
+      try{localStorage.removeItem(key)}catch{}
+    }
+  }
 }
 export function defaultSettings(d) {
   return {product:d.title,stage:d.stage||stages[0],budget:'',goal:'Выйти на ЛПР',plan:'',constraints:''};
 }
 export const saveRecord=r=>write(recordPrefix+r.deal.id,r);
-export const getView=id=>read(viewPrefix+id,{mode:'process',views:{}});
+export const getView=id=>read(viewPrefix+id,{mode:id===northernDeal.id?'org':'process',views:{}});
 export const saveView=(id,v)=>write(viewPrefix+id,v);
 export function wordsOf(value) {
   if(Array.isArray(value))return value.map(wordsOf).join(' ');

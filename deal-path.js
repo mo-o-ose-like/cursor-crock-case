@@ -1,6 +1,6 @@
 import {esc,icon} from './components.js';
 import {field,area,select,modal,submit,notify,valid} from './fields.js';
-import {deals,allDeals,dealRecord,saveRecord} from './data.js';
+import {deals,comparisonRecords,dealRecord,saveRecord} from './data.js';
 import {eventsFor,comparison,comparisonZones,observations,slots,statusNames,effects,aspects} from './path-data.js';
 
 function stamp(date){
@@ -141,8 +141,8 @@ export function createPath({id,root,getRecord,getView,saveView,refresh,selectPer
     const record=getRecord(),v=getView(),board=$('#path-board');
     if(!board)return;
     const scroll=boardScroll();
-    const family=r=>r.deal.demo?'journey-demo':deals.some(seed=>seed.id===r.deal.id)?'cursor-demo':'user';
-    records=allDeals().map(d=>dealRecord(d.id)).filter(Boolean);
+    const family=r=>r.deal.trainingFamily|| (r.deal.demo?'journey-demo':deals.some(seed=>seed.id===r.deal.id)?'cursor-demo':'user');
+    records=comparisonRecords(record).filter(Boolean);
     state=comparison(record,records.filter(r=>family(r)===family(record)),v);
     const current=eventsFor(record),past=[...state.history,...state.sample].find(r=>r.deal.id===v.archiveId);
     lanes={base:{owner:state.picked||record,events:state.baseline},now:{owner:record,events:current}};
@@ -295,7 +295,7 @@ export function createPath({id,root,getRecord,getView,saveView,refresh,selectPer
     let rows='',note='';
     if(state.sample.length){
       note=state.sample.length===1?'Основание — одна прошлая сделка. По ней нельзя установить устойчивый порядок закупки.':
-        'Сравнили журналы сделок по выбранному направлению. Верхняя дорожка показывает один документированный путь, в котором чаще повторяется порядок шагов из выборки.';
+        'Сравнили журналы сделок по выбранному направлению. Верхняя дорожка показывает один документированный путь, в котором чаще повторяется порядок шагов из выборки. Этих источников недостаточно, чтобы считать порядок обязательным.';
       rows=state.sample.map(r=>btn('archive','<strong>'+esc(r.deal.title)+'</strong>'+
         small([r.deal.company,r.journey.direction,r.journey.outcome,r.journey.period].filter(Boolean).join(' · '))+
         small(['История сделки',r===state.picked?'Показана на верхней дорожке':'Учтена при выборе пути',r.journey.outcomeSource].filter(Boolean).join(' · ')),
@@ -304,7 +304,7 @@ export function createPath({id,root,getRecord,getView,saveView,refresh,selectPer
       rows=state.baseline.map(e=>btn('event','<strong>'+esc(e.title)+'</strong>'+small(['Запись менеджера',e.direction,e.source||'Источник не указан'].filter(Boolean).join(' · ')),'path-choice path-source',meta('base',e))).join('')+btn('manual','Добавить шаг');
     }else note='Нет сохранённых источников для выбранного направления и основы сравнения.';
     dialog('Основание',(state.sample.length?'<p>'+esc(state.clientBasis?'Опыт этого клиента':'Опыт команды по сделкам других клиентов')+'</p>':'')+
-      rows+(note?'<p>'+esc(note)+'</p>':'')+(getRecord().deal.demo?small('В этом примере используются тестовые данные.'):''));
+      rows+(note?'<p>'+esc(note)+'</p>':'')+((getRecord().deal.demo||getRecord().deal.trainingFamily)?small('В этом примере используются тестовые данные.'):''));
   }
   function handle(b){
     const a=b.dataset.path;if(!a)return false;

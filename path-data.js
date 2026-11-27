@@ -114,11 +114,14 @@ export function observations(event,record,comparison){
     }
   }
   if(event.circumstance){
+    const prior=baseIndex.get(topicOf(event));
+    const compareBudget=event.topic==='budget'&&event.risk&&prior?.result;
+    const contextBasis=compareBudget?[event.discussion,'В сделке «'+(ref?.deal.title||'Запись менеджера')+'»: '+prior.result].filter(Boolean).join(' '):event.discussion;
     const change=event.sponsorChange;
     const participant=pid=>record.people.find(p=>p.id===pid)?.name;
     const label=change?'Сменился куратор':event.topic==='budget'?'Бюджет на согласовании':event.title;
-    add('context',event.risk?'risk':event.positive&&event.result?'positive':'unknown',label,event.circumstance,event.discussion,
-      event.result,[event.source],{before:participant(change?.before),after:participant(change?.after),
+    add('context',event.risk?'risk':event.positive&&event.result?'positive':'unknown',label,event.circumstance,contextBasis,
+      event.result,[event.source,compareBudget&&prior.source],{before:participant(change?.before),after:participant(change?.after),
         recheck:change?.recheck,hypothesis:event.risk,unknown:event.uncertainty||'Влияние изменения на исход сделки пока неизвестно.'});
   }
   if(event.format&&event.requested){
@@ -129,7 +132,19 @@ export function observations(event,record,comparison){
         'В профиле участника записано предпочтение «'+event.requested+'».',event.result,
         [event.source,'Карточка '+p.name+' · Предпочтения',event.resultSource],{unknown:event.uncertainty||'Реакция участника на выбранный формат не подтверждена.'});
   }
-  if(ref&&event.status==='done'&&topicOf(event)&&event.date&&event.source&&!baseIndex.has(topicOf(event))&&event.type&&results.some(m=>m.kind==='communication')){
+  if(event.communicationFollowup&&event.status==='done'&&event.result&&event.resultSource){
+    const prior=current.find(e=>e.id===event.communicationFollowup);
+    const p=record.people.find(p=>p.id===event.preferencePerson);
+    if(prior?.status==='done'&&prior.date&&event.date>prior.date&&prior.preferencePerson===p?.id&&
+       prior.people?.includes(p?.id)&&event.people?.includes(p?.id)&&p?.preferences?.includes(event.format)&&
+       event.format===event.requested&&prior.requested===event.requested&&prior.format!==prior.requested){
+      add('communication','positive','Запрошенные материалы помогли закрыть вопросы',
+        'После встречи «'+prior.title+'» команда передала материалы в согласованном формате.',
+        p.name+' ранее запросил: '+event.requested+'.',event.result,
+        [prior.source,event.source,event.resultSource,p.source],{unknown:'Подтверждение относится к архитектурным вопросам. Решение о бюджете остаётся открытым.'});
+    }
+  }
+  if(ref&&event.status==='done'&&topicOf(event)&&event.date&&event.source&&!baseIndex.has(topicOf(event))&&event.type&&results.some(m=>m.kind==='communication'&&m.effect==='unknown')){
     add('process','insufficient','Отдельный шаг в журнале','В текущей сделке отдельно зафиксировано событие «'+event.title+'».',
       'В журнале «'+ref.deal.title+'» отдельной записи на эту тему нет.',null,[event.source,ref.journey.outcomeSource],
       {unknown:'По журналу нельзя установить, обсуждали ли эту тему в другой встрече.'});
