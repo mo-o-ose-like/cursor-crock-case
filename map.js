@@ -4,10 +4,10 @@ import {caseForModel,inferProposal} from './local-model.js';
 import {askGroq} from './groq-chat.js';
 import {sourceText} from './source-text.js';
 import {loadDesigns,saveDesign,restoreDesign,deleteDesign,dealChanges,changeDetails,designList} from './saved-designs.js';
-import {edgeArt,edgeLegend} from './edge-art.js';
+import {departmentPair,edgeArt,edgeLegend} from './edge-art.js';
 import {boardSpace,frameBoard,frameObjects,wasAutomatic} from './board-camera.js';
 import {edgeId,recordDiff,applyRecordDiff,viewEdit,historyFor,remember,restoreView} from './map-history.js';
-import {editRelation,relationCard,pairKey} from './relations.js';
+import {departmentRelationCard,editRelation,relationCard,pairKey} from './relations.js';
 import {branchFor,scenarioBoard,chatHTML,personRisksHTML,visibleProposals} from './scenario-board.js';
 import {eventList,setEventList} from './simulation.js';
 import {terms,marked,highlightPanel,searchHits,resultList,filterPerson} from './map-search.js';
@@ -524,6 +524,19 @@ export function mountMap({id,root,go,signal,search}){
     if(mode==='process')fields+=`<label class="checkline"><input type="checkbox" name="highlight" ${v.highlight?'checked':''}>Выделить ЛПР</label>`;
     return `<form class="pop-form" id="map-filters">${fields}<div class="pop-footer"><button type="button" class="text-act" data-map="clear-filters">Сбросить</button>${submit('Применить')}</div></form>`;
   }
+  function departmentDetails(edge){
+    const pair=mode==='org'&&departmentPair(edge,model);
+    if(!pair)return null;
+    const links=[];
+    graph.edges.forEach((candidate,index)=>{
+      const other=departmentPair(candidate,model);
+      if(other?.from===pair.from&&other.to===pair.to)links.push({edge:candidate,index});
+    });
+    return {...pair,links};
+  }
+  function edgeCard(edge,preview,details=departmentDetails(edge)){
+    return details?departmentRelationCard(details,model,preview):relationCard(edge,mode,graph.people,preview,advice?.items);
+  }
   function drawPopover(){
     const trigger=$('[data-map="unknown"]');
     if(trigger){trigger.setAttribute('aria-expanded',String(pop==='unknown'));trigger.removeAttribute('aria-pressed')}
@@ -531,7 +544,7 @@ export function mountMap({id,root,go,signal,search}){
     const el=$('#map-pop');el.innerHTML='';el.style.left='';el.style.top='';el.style.maxWidth='';el.style.maxHeight='';if(!pop)return;
     if(pop==='edge'){
       const item=graph.edges[edgeIndex];if(!item)return;
-      el.innerHTML=relationCard(item,mode,graph.people,false,advice?.items);
+      el.innerHTML=edgeCard(item,false);
       const change=differences.find(d=>d.edge===edgeId(item));
       if(change)el.querySelector('.relation-pop').insertAdjacentHTML('beforeend','<details class="person-differences"><summary>Изменилось в сделке</summary>'+changeDetails([change])+'</details>');
       if(edgePoint)placeAtEdge(el,edgePoint)
@@ -605,7 +618,7 @@ export function mountMap({id,root,go,signal,search}){
   }
   function selectEdge(index,event){
     if(!graph.edges[index])return;
-    if(edgeEditing){changeEdge(graph.edges[index]);return}
+    if(edgeEditing&&(departmentDetails(graph.edges[index])?.links.length??1)===1){changeEdge(graph.edges[index]);return}
     clearPreview();edgeIndex=index;edgePoint=null;
     if(Number.isFinite(event?.clientX)&&event.detail!==0){
       const r=$('.map-content').getBoundingClientRect();edgePoint={x:event.clientX-r.left,y:event.clientY-r.top};
@@ -671,6 +684,11 @@ export function mountMap({id,root,go,signal,search}){
     const b=e.target.closest('button');
     if(!b){if(pop&&e.target.id!=='map-search'&&!e.target.closest('#map-pop')){pop='';drawPopover()}return}
     if(b.disabled)return;
+    if(b.dataset.orgEdgeEdit!==undefined){
+      const edge=graph.edges[Number(b.dataset.orgEdgeEdit)];
+      if(mode==='org'&&edge)changeEdge(edge);
+      return;
+    }
     if(mode==='scenario'&&chatOpen&&['risk','hypothesis','advice'].includes(b.dataset.insightKind)){
       const draft=$('#proposal-input').value;
       drafts.set(draftKey(),draft);resetFinding();if(syncFindingVisibility())drawWorld();
@@ -894,14 +912,20 @@ export function mountMap({id,root,go,signal,search}){
     if(dirs[e.key]){e.preventDefault();manualCamera();v.camera.x+=dirs[e.key][0];v.camera.y+=dirs[e.key][1];transform();save()}
     if(e.key==='+'||e.key==='=')zoom(1.2);if(e.key==='-')zoom(1/1.2);
   },{signal});
-  function markEnds(edge,active){
+  function markEnds(edge,active,departments){
+    if(departments){
+      for(const frame of root.querySelectorAll('.dept-frame[data-org-group]')){
+        if(frame.dataset.orgGroup===departments.from.key||frame.dataset.orgGroup===departments.to.key)frame.classList.toggle('edge-endpoint',active);
+      }
+      return;
+    }
     for(const node of root.querySelectorAll('[data-node]'))if(node.dataset.node===edge.a||node.dataset.node===edge.b)node.classList.toggle('edge-endpoint',active);
     for(const group of root.querySelectorAll('[data-collapse]'))if([edge.a,edge.b].some(id=>model.nodes.get(id)?.hidden&&model.nodes.get(id)?.group.name===group.dataset.collapse))group.classList.toggle('edge-endpoint',active);
   }
   function clearPreview(){
     clearTimeout(previewTimer);clearTimeout(hideTimer);
     if(!previewEdge)return;
-    markEnds(previewEdge.edge,false);
+    markEnds(previewEdge.edge,false,previewEdge.departments);
     previewEdge.el.removeAttribute?.('aria-describedby');previewEdge.el.classList.remove('edge-hover');
     const tip=$('#edge-preview');if(tip){tip.hidden=true;tip.innerHTML=''}
     previewEdge=null;
@@ -938,11 +962,12 @@ export function mountMap({id,root,go,signal,search}){
       return;
     }
     const edge=graph.edges[Number(el.dataset.edgeIndex)];if(!edge)return;
-    clearPreview();previewEdge={el,edge};markEnds(edge,true);el.classList.add('edge-hover');
+    const departments=departmentDetails(edge);
+    clearPreview();previewEdge={el,edge,departments};markEnds(edge,true,departments);el.classList.add('edge-hover');
     const point=edgeAnchor(el,event);
     previewTimer=setTimeout(()=>{
       if(previewEdge?.el!==el||signal.aborted)return;
-      const tip=$('#edge-preview');tip.innerHTML=relationCard(edge,mode,graph.people,true,advice?.items);tip.hidden=false;
+      const tip=$('#edge-preview');tip.innerHTML=edgeCard(edge,true,departments);tip.hidden=false;
       el.setAttribute('aria-describedby','edge-preview');placeAtEdge(tip,point);
     },event.type==='focusin'?0:160);
   }

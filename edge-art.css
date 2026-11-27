@@ -10,6 +10,10 @@
   --edge-dash:none;
 }
 .edge-formal {--edge-color:#81919b;--edge-width:1.5px}
+.edge-department {--edge-color:#55778c;--edge-width:2px}
+.dept-frame.edge-endpoint {outline:2px solid #658da5;outline-offset:1px}
+.department-relations {padding-left:18px;margin:4px 0;font-size:12px;overflow-wrap:anywhere}
+.department-relations .text-act {margin:0;padding:3px 0;text-align:left}
 .edge-done {--edge-color:#8b959c;--edge-width:1.8px}
 .edge-established {--edge-color:#425c6c;--edge-width:2.4px}
 .edge-planned {--edge-color:#477e9e;--edge-dash:7 5}

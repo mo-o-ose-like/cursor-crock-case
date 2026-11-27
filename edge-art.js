@@ -1,7 +1,7 @@
 import {esc} from './components.js';
 
 const labels = {
-  org: {formal: 'Формальное подчинение'},
+  org: {department: 'Подчинение отделов', formal: 'Формальное подчинение'},
   process: {done: 'Пройденный путь', established: 'Установленная связь', planned: 'Запланированная связь'},
   influence: {strong: 'Сильное · подтверждено', limited: 'Ограниченное · подтверждено', assumed: 'Предполагаемое · не подтверждено'},
   scenario: {current: 'Текущая связь', new: 'Предлагается добавить', remove: 'Предлагается удалить', change: 'Предлагается изменить'}
@@ -202,7 +202,7 @@ function sideOf(box, point) {
   return point.y < box.y ? 'top' : 'bottom';
 }
 
-function spaceOrgPorts(lines, obstacles) {
+function spaceOrgPorts(lines) {
   const byBox = new Map();
   for (const line of lines) {
     if (!line.points) continue;
@@ -231,7 +231,7 @@ function spaceOrgPorts(lines, obstacles) {
   for (const line of lines) {
     if (!line.ports?.some(port=>port.spread)) continue;
     const [from,to] = line.ports;
-    line.points = route(line.a,line.b,from.fraction,to.fraction,obstacles,true,[from.side,to.side]) ?? line.points;
+    line.points = route(line.a,line.b,from.fraction,to.fraction,line.obstacles,true,[from.side,to.side]) ?? line.points;
   }
 }
 
@@ -244,41 +244,59 @@ export function edgeLegend(mode) {
     '<span>' + text + '</span></div>').join('') + '</div>';
 }
 
+export function departmentPair(edge,model) {
+  const from=model.nodes.get(edge.a)?.group;
+  const to=model.nodes.get(edge.b)?.group;
+  return from&&to&&from.name!==to.name ? {from,to} : null;
+}
+
 export function edgeArt(edges, model, mode, selected, matching, staleEdges) {
   const org = mode === 'org';
   const incidents = new Map();
   const obstacles = [...model.nodes.values()].filter(n => !n.hidden);
   for (const g of model.groups) obstacles.push(g.collapsed ? g : {x:g.x,y:g.y,w:g.w,h:38});
+  const departments = new Map();
   const lines = [];
   edges.forEach((edge, index) => {
     const na = model.nodes.get(edge.a), nb = model.nodes.get(edge.b);
     if (!na || !nb) return;
-    const a = na.hidden ? na.group : na, b = nb.hidden ? nb.group : nb;
+    const pair = org && departmentPair(edge,model);
+    const a = pair?.from ?? (na.hidden ? na.group : na);
+    const b = pair?.to ?? (nb.hidden ? nb.group : nb);
     if (!a || !b || a === b) return;
+    const line = {a,b,index,links:[edge],department:!!pair,obstacles:pair?model.groups:obstacles};
+    if (pair) {
+      const key = JSON.stringify([a.key,b.key]);
+      const existing = departments.get(key);
+      if (existing) { existing.links.push(edge); return; }
+      departments.set(key,line);
+    }
+    lines.push(line);
     for (const box of [a,b]) {
       if (!incidents.has(box)) incidents.set(box, []);
       incidents.get(box).push(index);
     }
-    lines.push({edge, index, na, nb, a, b});
   });
   for (const line of lines) {
     const {a,b,index} = line;
     line.points = route(a,b,portFraction(incidents.get(a),index),
-      portFraction(incidents.get(b),index),obstacles,org);
+      portFraction(incidents.get(b),index),line.obstacles,org);
   }
-  if (org) spaceOrgPorts(lines,obstacles);
-  const groups = lines.map(({edge, index, na, nb, points}) => {
+  if (org) spaceOrgPorts(lines);
+  const groups = lines.map(({a,b,index,links,points,department}) => {
     if (!points) return '';
     const d = roundedPath(points, org ? 12 : 11);
-    const type = lineType(edge, mode);
-    const label = esc(na.p.name + ' → ' + nb.p.name + '. ' + labels[mode][type]);
-    const faded = matching && !matching.get(edge.a) && !matching.get(edge.b);
-    const incident = edge.a === selected || edge.b === selected;
+    const type = department ? 'department' : lineType(links[0], mode);
+    const names = type === 'department' ? [a.name,b.name]
+      : [model.nodes.get(links[0].a).p.name,model.nodes.get(links[0].b).p.name];
+    const label = esc(names.join(' → ') + '. ' + labels[mode][type]);
+    const faded = matching && !links.some(edge => matching.get(edge.a) || matching.get(edge.b));
+    const incident = links.some(edge => edge.a === selected || edge.b === selected);
     const end = points.at(-1), prev = points.at(-2);
     const angle = Math.round(Math.atan2(end.y - prev.y, end.x - prev.x) * 180 / Math.PI);
     const tipLength = mode === 'org' ? Math.min(7, length(prev,end)) : 7;
     const tipWidth = Math.min(4, tipLength * 0.6);
-    const stale=staleEdges?.has(JSON.stringify([edge.kind,edge.a,edge.b]));
+    const stale=staleEdges&&links.some(edge=>staleEdges.has(JSON.stringify([edge.kind,edge.a,edge.b])));
     return '<g class="connection edge-' + type + (stale?' stale-connection':'') + (faded ? ' edge-muted' : '') + (incident ? ' edge-incident' : '') +
       '" data-edge-index="' + index + '" role="button" tabindex="0" aria-label="' + label + '">' +
       '<path class="connection-hit" d="' + d + '"/><path class="connection-halo" d="' + d + '"/>' +
