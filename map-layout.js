@@ -2,7 +2,7 @@ import {blankPerson} from './data.js';
 import {projectEvents} from './simulation.js';
 import {filterPerson,searchPerson,terms} from './map-search.js';
 
-export const modes={process:'Процесс закупки',org:'Оргструктура',influence:'Влияние',scenario:'What if'};
+export const modes={process:'Путь сделки',org:'Оргструктура',influence:'Влияние',scenario:'What if'};
 export const hasDepartments=mode=>mode==='org'||mode==='influence';
 // Influence links are direct observations. A two-step chain never creates a
 // third inferred link between its endpoints.
