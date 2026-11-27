@@ -196,6 +196,25 @@ function route(a, b, f1, f2, obstacles, org, fixedSides) {
   return best;
 }
 
+const departmentSides=['bottom','top'];
+
+function departmentCurve(a,b,departments){
+  const start=port(a,departmentSides[0],0.5,4);
+  const end=port(b,departmentSides[1],0.5,4);
+  const gap=end.y-start.y;
+  if(gap<10)return null;
+  const dx=end.x-start.x;
+  const first={x:start.x+(dx ? dx*0.28 : Math.min(6,gap*0.18)),y:start.y+gap*0.22};
+  const last={x:end.x,y:end.y-gap*0.34};
+  const left=Math.min(start.x,first.x,end.x),right=Math.max(start.x,first.x,end.x);
+  // The cubic stays inside its control points' bounds. Use the routed corridor
+  // instead when another department occupies any of that space.
+  const blocked=departments.some(g=>g!==a&&g!==b&&
+    g.x-3<right&&g.x+g.w+3>left&&g.y-3<end.y&&g.y+g.h+3>start.y);
+  if(blocked)return null;
+  return {d:'M'+coords(start)+' C'+coords(first)+' '+coords(last)+' '+coords(end),end,prev:last};
+}
+
 function sideOf(box, point) {
   if (point.x < box.x) return 'left';
   if (point.x > box.x + box.w) return 'right';
@@ -205,7 +224,7 @@ function sideOf(box, point) {
 function spaceOrgPorts(lines) {
   const byBox = new Map();
   for (const line of lines) {
-    if (!line.points) continue;
+    if (!line.points||line.centered) continue;
     line.ports = [[line.a, line.b, line.points[0]], [line.b, line.a, line.points.at(-1)]]
       .map(([box, peer, point]) => {
         const side = sideOf(box, point);
@@ -279,20 +298,28 @@ export function edgeArt(edges, model, mode, selected, matching, staleEdges) {
   });
   for (const line of lines) {
     const {a,b,index} = line;
+    if(line.department){
+      line.curve=departmentCurve(a,b,line.obstacles);
+      if(line.curve)continue;
+      if(a.y+a.h<b.y){
+        line.points=route(a,b,0.5,0.5,line.obstacles,true,departmentSides);
+        if(line.points){line.centered=true;continue}
+      }
+    }
     line.points = route(a,b,portFraction(incidents.get(a),index),
       portFraction(incidents.get(b),index),line.obstacles,org);
   }
   if (org) spaceOrgPorts(lines);
-  const groups = lines.map(({a,b,index,links,points,department}) => {
-    if (!points) return '';
-    const d = roundedPath(points, org ? 12 : 11);
+  const groups = lines.map(({a,b,index,links,points,department,curve}) => {
+    if (!points&&!curve) return '';
+    const d = curve?.d ?? roundedPath(points, org ? 12 : 11);
     const type = department ? 'department' : lineType(links[0], mode);
     const names = type === 'department' ? [a.name,b.name]
       : [model.nodes.get(links[0].a).p.name,model.nodes.get(links[0].b).p.name];
     const label = esc(names.join(' → ') + '. ' + labels[mode][type]);
     const faded = matching && !links.some(edge => matching.get(edge.a) || matching.get(edge.b));
     const incident = links.some(edge => edge.a === selected || edge.b === selected);
-    const end = points.at(-1), prev = points.at(-2);
+    const end = curve?.end ?? points.at(-1), prev = curve?.prev ?? points.at(-2);
     const angle = Math.round(Math.atan2(end.y - prev.y, end.x - prev.x) * 180 / Math.PI);
     const tipLength = mode === 'org' ? Math.min(7, length(prev,end)) : 7;
     const tipWidth = Math.min(4, tipLength * 0.6);
