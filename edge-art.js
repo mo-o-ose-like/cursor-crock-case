@@ -1,4 +1,5 @@
 import {esc} from './components.js';
+import {influenceLaneGap} from './map-layout.js';
 
 const labels = {
   org: {department: 'Подчинение отделов', formal: 'Формальное подчинение'},
@@ -356,6 +357,67 @@ function spaceOrgPorts(lines) {
   }
 }
 
+function routeInfluenceMembers(lines) {
+  const byGroup = new Map();
+  for (const line of lines) {
+    if (line.department) continue;
+    const group = line.a.group;
+    if (!byGroup.has(group)) byGroup.set(group, []);
+    byGroup.get(group).push(line);
+  }
+  for (const [group, connections] of byGroup) {
+    const ranks = new Map(group.members.map((id,index)=>[id,index]));
+    const adjacent = new Map(), detours = [];
+    for (const line of connections) {
+      const a = ranks.get(line.a.p.id), b = ranks.get(line.b.p.id);
+      const first = Math.min(a,b), last = Math.max(a,b);
+      const span = {line,first,last,down:a<b};
+      if (last-first===1) {
+        if (!adjacent.has(first)) adjacent.set(first,[]);
+        adjacent.get(first).push(span);
+      } else detours.push(span);
+    }
+    for (const links of adjacent.values()) {
+      for (const {line,down} of links) {
+        const offset = links.length===1?0:down?-influenceLaneGap:influenceLaneGap;
+        const fraction = .5+offset/line.a.w;
+        line.points = [port(line.a,down?'bottom':'top',fraction,3),port(line.b,down?'top':'bottom',fraction,3)];
+      }
+    }
+
+    const laneEnds = [], ports = new Map();
+    // Only reuse a lane after its previous link clears this card and its ports.
+    detours.sort((a,b)=>a.first-b.first||b.last-a.last);
+    for (const span of detours) {
+      const {line,first,last,down} = span;
+      let lane = laneEnds.findIndex(end=>end<first);
+      if (lane<0) lane=laneEnds.length;
+      laneEnds[lane]=last;
+      const side=lane%2?'left':'right', depth=Math.floor(lane/2);
+      span.x=port(line.a,side,.5,11+depth*influenceLaneGap).x;
+      for (const [box,end,towardBelow] of [[line.a,'start',down],[line.b,'end',!down]]) {
+        if (!ports.has(box)) ports.set(box,{left:[],right:[]});
+        ports.get(box)[side].push({span,end,depth,towardBelow});
+      }
+    }
+    for (const [box, sides] of ports) {
+      for (const [side, endpoints] of Object.entries(sides)) {
+        // Outer routes pass behind the inner ones where they meet a shared card.
+        endpoints.sort((a,b)=>Number(a.towardBelow)-Number(b.towardBelow)||
+          (a.towardBelow?b.depth-a.depth:a.depth-b.depth));
+        const middle=(endpoints.length-1)/2;
+        const step=Math.min(influenceLaneGap,(box.h-36)/Math.max(1,endpoints.length-1));
+        endpoints.forEach(({span,end},index)=>{
+          span[end]=port(box,side,.5+(index-middle)*step/box.h,3);
+        });
+      }
+    }
+    for (const {line,x,start,end} of detours) {
+      line.points=[start,{x,y:start.y},{x,y:end.y},end];
+    }
+  }
+}
+
 export function edgeLegend(mode) {
   const entries = Object.entries(labels[mode] || {});
   if (!entries.length) return '';
@@ -382,8 +444,7 @@ export function edgeArt(edges, model, mode, selected, matching, staleEdges, show
   const grouped = org || influence;
   const incidents = new Map();
   const obstacles = [...model.nodes.values()].filter(n => !n.hidden);
-  const headers = new Map(model.groups.map(g=>[g,g.collapsed?g:{x:g.x,y:g.y,w:g.w,h:38}]));
-  obstacles.push(...headers.values());
+  for (const g of model.groups) obstacles.push(g.collapsed?g:{x:g.x,y:g.y,w:g.w,h:38});
   const departments = new Map();
   const lines = [];
   edges.forEach((edge, index) => {
@@ -402,26 +463,29 @@ export function edgeArt(edges, model, mode, selected, matching, staleEdges, show
       departments.set(key,line);
     }
     lines.push(line);
+    if (influence && !pair) return;
     for (const box of [a,b]) {
       if (!incidents.has(box)) incidents.set(box, []);
       incidents.get(box).push(index);
     }
   });
+  if (influence) routeInfluenceMembers(lines);
   for (const line of lines) {
+    if (influence && !line.department) continue;
     const {a,b,index} = line;
     const fromFraction=portFraction(incidents.get(a),index),toFraction=portFraction(incidents.get(b),index);
     if(line.department){
       line.curve=influence?departmentCurve(a,b,model.groups,fromFraction,toFraction):departmentCurve(a,b,model.groups);
       continue;
     }
-    line.obstacles=influence?model.groups.map(g=>g===a.group?headers.get(g):g)
-      .concat(a.group?.members.map(id=>model.nodes.get(id))||[]):obstacles;
-    line.points = route(a,b,fromFraction,toFraction,line.obstacles,grouped);
+    line.obstacles=obstacles;
+    line.points = route(a,b,fromFraction,toFraction,obstacles,org);
   }
-  if (grouped) spaceOrgPorts(lines);
+  if (org) spaceOrgPorts(lines);
   const groups = lines.map(({a,b,index,links,points,department,curve}) => {
     if (!points&&!curve) return '';
-    const d = curve?.d ?? roundedPath(points, grouped ? 12 : 11);
+    const withinInfluence=influence&&!department;
+    const d = curve?.d ?? roundedPath(points, withinInfluence?6:org?12:11);
     const firstType=lineType(links[0],mode);
     const type=department&&org?'department':department&&links.some(edge=>lineType(edge,mode)!==firstType)?'mixed':firstType;
     const names = department ? [a.name,b.name]
@@ -434,7 +498,7 @@ export function edgeArt(edges, model, mode, selected, matching, staleEdges, show
     const tipLength = grouped && !department ? Math.min(7, length(prev,end)) : 7;
     const tipWidth = Math.min(4, tipLength * 0.6);
     const stale=staleEdges&&links.some(edge=>staleEdges.has(JSON.stringify([edge.kind,edge.a,edge.b])));
-    return '<g class="connection edge-' + type + (stale?' stale-connection':'') + (faded ? ' edge-muted' : '') + (incident ? ' edge-incident' : '') +
+    return '<g class="connection edge-' + type + (withinInfluence?' edge-internal-influence':'') + (stale?' stale-connection':'') + (faded ? ' edge-muted' : '') + (incident ? ' edge-incident' : '') +
       '" data-edge-index="' + index + '" role="button" tabindex="0" aria-label="' + label + '">' +
       '<path class="connection-hit" d="' + d + '"/><path class="connection-halo" d="' + d + '"/>' +
       '<path class="connection-line" d="' + d + '"/><path class="connection-tip" transform="translate(' + coords(end) +

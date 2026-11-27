@@ -55,6 +55,25 @@ export function matchesPerson(p,view,mode='process'){
 }
 const W=248;
 const dept=p=>p.dept||'Подразделение не указано';
+export const influenceLaneGap=8;
+const cardGap=mode=>mode==='influence'?26:12;
+const departmentHeight=(count,h,gap)=>57+count*h+(count-1)*gap;
+
+function influencePadding(groups,edges){
+  const departments=new Map();
+  for(const [name,members] of groups)for(const person of members)departments.set(person.id,name);
+  const totals=new Map();
+  for(const {a,b} of edges){
+    const name=departments.get(a);
+    if(name&&name===departments.get(b))totals.set(name,(totals.get(name)||0)+1);
+  }
+  // Reserve capacity for reordering cards without resizing the frame mid-drag.
+  return new Map([...totals].map(([name,count])=>{
+    const size=groups.get(name).length;
+    const possibleDetours=Math.min(count,(size-1)*(size-2));
+    return [name,16+influenceLaneGap*Math.max(0,Math.ceil(possibleDetours/2)-1)];
+  }));
+}
 function arrangementScore(space,width,height,keys,h){
   const all=Math.min(space.w/width,space.h/height);
   if(all>=.88)return 2+all;
@@ -179,9 +198,13 @@ function groupPositions(people,mode,h,edges,viewport,collapsed){
       });
     }
   }else for(const members of by.values())members.sort((a,b)=>Number(!!b.decision)-Number(!!a.decision)||Number(!!b.primary)-Number(!!a.primary));
-  const positions={},groups=[];const width=W+32;
-  const dx=width+(mode==='influence'?48:viewport?28:44),gapY=mode==='influence'?46:viewport?34:68;
-  const groupHeight=k=>viewport&&collapsed.has(dept(by.get(k)[0]))?39:48+by.get(k).length*(h+12);
+  const positions={},groups=[];
+  const gap=cardGap(mode),pitch=h+gap;
+  const padding=mode==='influence'?influencePadding(by,edges):new Map();
+  const columnWidth=W+2*Math.max(16,...padding.values());
+  const dx=columnWidth+(mode==='influence'?48:viewport?28:44),gapY=mode==='influence'?46:viewport?34:68;
+  const groupHeight=k=>viewport&&collapsed.has(dept(by.get(k)[0]))?39:
+    departmentHeight(by.get(k).length,h,gap)+(mode==='org'?3:0);
   if(viewport&&by.size){
     const keyGroups=new Set(people.filter(p=>p.primary||p.decision).map(dept));
     const ranks=mode==='org'?rows:[[...by.keys()].sort((a,b)=>Number(b===first)-Number(a===first)||Number(keyGroups.has(b))-Number(keyGroups.has(a)))];
@@ -190,12 +213,12 @@ function groupPositions(people,mode,h,edges,viewport,collapsed){
     for(let cols=1;cols<=Math.max(...ranks.map(r=>r.length));cols++){
       const trial=[];
       for(const rank of ranks)for(let i=0;i<rank.length;i+=cols)trial.push(rank.slice(i,i+cols));
-      const widthUsed=(Math.max(...trial.map(r=>r.length))-1)*dx+width;
+      const widthUsed=(Math.max(...trial.map(r=>r.length))-1)*dx+columnWidth;
       let y=0;const keyLocations=[];
       const maxCols=Math.max(...trial.map(r=>r.length));
       for(const r of trial){
         r.forEach((k,i)=>by.get(k).forEach((p,j)=>{
-          if((p.primary||p.decision)&&!collapsed.has(dept(p)))keyLocations.push({x:(i+(maxCols-r.length)/2)*dx+16,y:y+43+j*(h+12)});
+          if((p.primary||p.decision)&&!collapsed.has(dept(p)))keyLocations.push({x:(i+(maxCols-r.length)/2)*dx+(columnWidth-W)/2,y:y+43+j*pitch});
         }));
         y+=Math.max(...r.map(groupHeight))+gapY;
       }
@@ -208,16 +231,18 @@ function groupPositions(people,mode,h,edges,viewport,collapsed){
   for(const row of rows){
     let rh=0;
     row.forEach((name,i)=>{
-      const x=(i+(max-row.length)/2)*dx;
       const members=by.get(name);const gh=groupHeight(name);
+      const pad=padding.get(name)??16;
+      const width=W+2*pad;
+      const x=(i+(max-row.length)/2)*dx+(columnWidth-width)/2;
       groups.push({key:(splitGroups?'rank:':'dept:')+name,name:dept(members[0]),x,y,w:width,h:gh,members:members.map(p=>p.id)});
-      members.forEach((p,j)=>positions[p.id]={x:x+16,y:y+43+j*(h+12)});
+      members.forEach((p,j)=>positions[p.id]={x:x+pad,y:y+43+j*pitch});
       rh=Math.max(rh,gh);
     });y+=rh+gapY;
   }
   return {positions,groups};
 }
-function placeDepartment(group,nodes,view,defaults,h){
+function placeDepartment(group,nodes,view,defaults,h,gap){
   const editing=view.layoutMode!=='auto';
   const saved=editing?view.orgGroups?.[group.key]:null;
   if(Number.isFinite(saved?.x)&&Number.isFinite(saved?.y)){
@@ -233,11 +258,11 @@ function placeDepartment(group,nodes,view,defaults,h){
     const y=id=>view.positions[id]?.y??defaults[id].y;
     group.members=[...members].sort((a,b)=>y(a)-y(b));
   }
-  group.h=group.collapsed?39:57+group.members.length*h+(group.members.length-1)*12;
+  group.h=group.collapsed?39:departmentHeight(group.members.length,h,gap);
   group.members.forEach((id,index)=>{
     const node=nodes.get(id);
-    node.x=group.x+16;
-    node.y=group.y+43+index*(h+12);
+    node.x=group.x+(group.w-node.w)/2;
+    node.y=group.y+43+index*(h+gap);
   });
 }
 export function layout(people,edges,mode,view,viewport){
@@ -250,7 +275,7 @@ export function layout(people,edges,mode,view,viewport){
   for(const p of people){const xy=inherited[p.id]??layout.positions[p.id];nodes.set(p.id,{...xy,w:W,h,p})}
   for(const g of layout.groups){
     g.collapsed=collapsed.has(g.name);
-    placeDepartment(g,nodes,view,layout.positions,h);
+    placeDepartment(g,nodes,view,layout.positions,h,cardGap(mode));
     for(const id of g.members){const node=nodes.get(id);node.group=g;node.hidden=g.collapsed}
   }
   const boxes=[...layout.groups,...[...nodes.values()].filter(n=>!n.hidden)];
