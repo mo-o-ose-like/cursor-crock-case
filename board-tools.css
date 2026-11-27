@@ -4,6 +4,7 @@
 .layout-toggle,.chat-open,.edge-mode-note,.other-modes button,.compare-tabs button{font:600 12px var(--body);color:var(--nav);cursor:pointer}
 .layout-toggle{display:flex;align-items:center;gap:7px;padding:8px 10px}.layout-toggle[aria-expanded=true],.layout-toggle:hover{background:var(--wash)}
 .layout-pop .layout-row{width:100%;display:flex;align-items:center;justify-content:space-between;border:0;border-radius:9px;background:white;color:var(--ink);padding:10px;text-align:left}
+.layout-pop .layout-row + .layout-row{margin-top:8px}
 .layout-row b,.layout-row small{display:block}.layout-row b{font:600 13px var(--body)}.layout-row small{font:12px/1.45 var(--body);color:var(--muted);margin-top:2px}.layout-pop .layout-row:hover,.layout-pop .layout-row[aria-pressed=true]{background:#eef4f7}.layout-row i{color:var(--brand);font-style:normal}.layout-pop .layout-row:last-child{margin-top:6px;border-top:1px solid var(--line)}
 .other-modes{padding:16px 0 5px}.other-modes h3,.chat-title h2{font-size:15px;line-height:1.3;margin:0}.other-modes>div{flex-wrap:wrap;margin-top:9px}.other-modes button,.chat-open{background:#fff;border:1px solid #b9cdd8;border-radius:9px;padding:7px 9px}
 .other-modes button:enabled:hover,.chat-open:hover{background:#eaf2f7}.inspect-foot{display:flex;align-items:center;justify-content:space-between;gap:7px;flex-wrap:wrap}.remove-link{font:600 12px var(--body);color:#973e44;background:transparent;border:0;padding:6px 0;cursor:pointer}.remove-link:hover{text-decoration:underline}

@@ -47,7 +47,7 @@ test('Successful request preserves the chat protocol, readable sources and secre
   assert(!JSON.stringify(data).includes(env.AI_API_KEY));
   assert.equal(sent.url,'https://api.groq.com/openai/v1/chat/completions');
   assert.equal(sent.options.headers.Authorization,'Bearer '+env.AI_API_KEY);
-  assert.equal(sent.options.redirect,'error');
+  assert.equal(sent.options.redirect,'manual');
   const payload=JSON.parse(sent.options.body);
   assert.equal(payload.reasoning_effort,'low');
   assert(!JSON.stringify(payload).includes('technical'));

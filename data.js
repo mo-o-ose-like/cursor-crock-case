@@ -38,8 +38,11 @@ export function allDeals() {
     const d=read(key)?.deal;
     if(d && !deals.some(seed=>seed.id===d.id)) extra.push(d);
   }
-  return [...extra.sort((a,b)=>b.created-a.created),...deals];
+  const removed=new Set(read('cursor.demo.deleted-deals.v1',[]));
+  return [...extra.sort((a,b)=>b.created-a.created),...deals].filter(d=>!removed.has(d.id));
 }
+export function deleteDeal(id){write('cursor.demo.deleted-deals.v1',[...new Set([...read('cursor.demo.deleted-deals.v1',[]),id])])}
+export function restoreDeal(id){write('cursor.demo.deleted-deals.v1',read('cursor.demo.deleted-deals.v1',[]).filter(value=>value!==id))}
 export function dealRecord(id) {
   const stored=read(recordPrefix+id);
   if(stored?.deal && Array.isArray(stored.people) && Array.isArray(stored.edges)) return stored;

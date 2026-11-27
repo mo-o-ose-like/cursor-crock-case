@@ -9,7 +9,7 @@
   --edge-width:2.2px;
   --edge-dash:none;
 }
-.edge-formal {--edge-color:#81919b;--edge-width:1.5px}
+.edge-formal {--edge-color:#4d6b80;--edge-width:2.2px}
 .edge-department {--edge-color:#55778c;--edge-width:2px}
 .dept-frame.edge-endpoint {outline:2px solid #658da5;outline-offset:1px}
 .department-relations {padding-left:18px;margin:4px 0;font-size:12px;overflow-wrap:anywhere}
