@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "python3 server.py",
-    "test": "python3 -m unittest discover -s tests -v && node --test tests/groq.test.mjs tests/worker.test.mjs tests/observations.test.mjs tests/influence.test.mjs",
+    "test": "python3 -m unittest discover -s tests -v && node --test tests/groq.test.mjs tests/worker.test.mjs tests/observations.test.mjs tests/influence.test.mjs tests/deal-search.test.mjs tests/org-connections.test.mjs tests/department-layout.test.mjs tests/deal-path.test.mjs",
     "build:sites": "node scripts/build-sites.mjs && node scripts/validate-sites.mjs",
     "preview:sites": "node scripts/preview-sites.mjs",
     "test:browser": "node tests/browser.cjs",

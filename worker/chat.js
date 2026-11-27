@@ -157,10 +157,14 @@ export async function handleChat(request, env, policy, fetchImpl = fetch) {
     if (model.startsWith('openai/gpt-oss-')) Object.assign(payload,{reasoning_effort:'low',include_reasoning:false});
     const upstream = await fetchImpl(base.replace(/\/$/,'')+'/chat/completions',{
       method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','User-Agent':'CursorMVP/0.1','Authorization':'Bearer '+env.AI_API_KEY},
-      body:JSON.stringify(payload),signal:controller.signal,redirect:'error',
+      // Workers supports manual/follow only. Never forward the shared key to
+      // a redirect destination; handle any non-2xx response below instead.
+      body:JSON.stringify(payload),signal:controller.signal,redirect:'manual',
     });
     if (!upstream.ok) {
-      await upstream.body?.cancel();
+      let detail;
+      try{detail=await upstream.json()}catch{}
+      console.warn('groq_upstream_error',JSON.stringify({status:upstream.status,code:detail?.error?.code,type:detail?.error?.type,message:String(detail?.error?.message||'').replaceAll(env.AI_API_KEY,'[redacted]').slice(0,350)}));
       const errors = {401:'Groq не принял ключ. Владелец сайта должен проверить настройки.',403:'Groq запретил доступ. Проверьте доступность сервиса и разрешения аккаунта.',404:'Модель не найдена. Проверьте AI_MODEL.',429:'Достигнут лимит Groq. Повторите запрос позже.'};
       throw new ChatError(upstream.status===429?429:502,errors[upstream.status] || 'Groq временно недоступен. Повторите вопрос позже.');
     }

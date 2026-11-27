@@ -56,7 +56,7 @@ export function matchesPerson(p,view,mode='process'){
 const W=248;
 const dept=p=>p.dept||'Подразделение не указано';
 export const influenceLaneGap=8;
-const cardGap=mode=>mode==='influence'?26:12;
+const cardGap=mode=>mode==='influence'?26:mode==='org'?24:12;
 const departmentHeight=(count,h,gap)=>57+count*h+(count-1)*gap;
 
 function influencePadding(groups,edges){
@@ -201,8 +201,8 @@ function groupPositions(people,mode,h,edges,viewport,collapsed){
   const positions={},groups=[];
   const gap=cardGap(mode),pitch=h+gap;
   const padding=mode==='influence'?influencePadding(by,edges):new Map();
-  const columnWidth=W+2*Math.max(16,...padding.values());
-  const dx=columnWidth+(mode==='influence'?48:viewport?28:44),gapY=mode==='influence'?46:viewport?34:68;
+  const columnWidth=W+2*Math.max(mode==='org'?32:16,...padding.values());
+  const dx=columnWidth+(mode==='influence'?48:viewport?28:44),gapY=mode==='influence'?46:viewport?54:68;
   const groupHeight=k=>viewport&&collapsed.has(dept(by.get(k)[0]))?39:
     departmentHeight(by.get(k).length,h,gap)+(mode==='org'?3:0);
   if(viewport&&by.size){
@@ -232,7 +232,7 @@ function groupPositions(people,mode,h,edges,viewport,collapsed){
     let rh=0;
     row.forEach((name,i)=>{
       const members=by.get(name);const gh=groupHeight(name);
-      const pad=padding.get(name)??16;
+    const pad=padding.get(name)??(mode==='org'?32:16);
       const width=W+2*pad;
       const x=(i+(max-row.length)/2)*dx+(columnWidth-width)/2;
       groups.push({key:(splitGroups?'rank:':'dept:')+name,name:dept(members[0]),x,y,w:width,h:gh,members:members.map(p=>p.id)});
@@ -265,6 +265,34 @@ function placeDepartment(group,nodes,view,defaults,h,gap){
     node.y=group.y+43+index*(h+gap);
   });
 }
+
+export function departmentPosition(box,others,gap=24){
+  const height=b=>b.reservedH??b.h;
+  const clear=(x,y)=>others.every(b=>x+box.w+gap<=b.x||x>=b.x+b.w+gap||y+height(box)+gap<=b.y||y>=b.y+height(b)+gap);
+  if(clear(box.x,box.y))return {x:box.x,y:box.y};
+  const xs=[box.x,...others.flatMap(b=>[b.x-box.w-gap,b.x+b.w+gap])];
+  const ys=[box.y,...others.flatMap(b=>[b.y-height(box)-gap,b.y+height(b)+gap])];
+  let best,score=Infinity;
+  for(const x of xs)for(const y of ys){
+    const distance=(x-box.x)**2+(y-box.y)**2;
+    if(distance<score&&clear(x,y)){best={x,y};score=distance}
+  }
+  return best;
+}
+
+function separateDepartments(groups,nodes,activeKey){
+  const placed=[];
+  // Keep stationary departments fixed while the dragged frame slides around
+  // them. The same pass repairs overlapping coordinates saved by older builds.
+  for(const g of [...groups].sort((a,b)=>Number(a.key===activeKey)-Number(b.key===activeKey))){
+    const point=departmentPosition(g,placed),dx=point.x-g.x,dy=point.y-g.y;
+    if(dx||dy){
+      Object.assign(g,point,{adjusted:true});
+      for(const id of g.members){const n=nodes.get(id);n.x+=dx;n.y+=dy}
+    }
+    placed.push(g);
+  }
+}
 export function layout(people,edges,mode,view,viewport){
   const grouped=hasDepartments(mode);const h=mode==='org'?(viewport?(viewport.orderByManager?90:98):76):mode==='influence'?(viewport?137:125):144;
   const collapsed=new Set(view.collapsed||[]);
@@ -276,8 +304,10 @@ export function layout(people,edges,mode,view,viewport){
   for(const g of layout.groups){
     g.collapsed=collapsed.has(g.name);
     placeDepartment(g,nodes,view,layout.positions,h,cardGap(mode));
+    g.reservedH=view.layoutMode==='free'?departmentHeight(g.members.length,h,cardGap(mode)):g.h;
     for(const id of g.members){const node=nodes.get(id);node.group=g;node.hidden=g.collapsed}
   }
+  if(grouped&&view.layoutMode!=='auto')separateDepartments(layout.groups,nodes,view.activeDepartment);
   const boxes=[...layout.groups,...[...nodes.values()].filter(n=>!n.hidden)];
   const bounds=boxes.length?{x:Math.min(...boxes.map(n=>n.x)),y:Math.min(...boxes.map(n=>n.y)),r:Math.max(...boxes.map(n=>n.x+n.w)),b:Math.max(...boxes.map(n=>n.y+n.h))}:{x:0,y:0,r:W,b:h};
   return {nodes,groups:layout.groups,bounds};
